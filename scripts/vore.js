@@ -5,7 +5,7 @@ import { describeInside } from "./inside.js";
 import { initialTimedState } from "./timed.js";
 import { cleanDigest } from "./digestchoice.js";
 import { logEvent, logName } from "./journal.js";
-import { getPrey, getPred, getConfig, getSlot, flagOf, isActiveGM, say, esc, fmtMsg, audience, scopeFor, stageOf, effectiveSlot, isEndoOnly, stripDefaultValues } from "./util.js";
+import { getPrey, getPred, getConfig, getSlot, flagOf, isActiveGM, say, esc, fmtMsg, audience, scopeFor, stageOf, effectiveSlot, isEndoOnly, stripDefaultValues, normalizeStages, hidesPrey } from "./util.js";
 
 const FLAG = `flags.${MODULE_ID}`;
 /** Foundry v13 attaches properties to the options object, so every update needs its own. */
@@ -154,7 +154,7 @@ async function applySlimed(prey) {
   }
 }
 
-export async function startVore({ sceneId, predId, preyIds, slot = 0, forced = false, secret = false, digest: digestChoice = null }) {
+export async function startVore({ sceneId, predId, preyIds, slot = 0, forced = false, secret = false, hide = false, gm = false, digest: digestChoice = null }) {
   const scene = game.scenes.get(sceneId);
   const pred = scene?.tokens.get(predId);
   if (!pred) return;
@@ -163,6 +163,8 @@ export async function startVore({ sceneId, predId, preyIds, slot = 0, forced = f
   const ids = new Set(getPred(pred)?.preyIds ?? []);
   const names = [];
   const swallowed = [];
+  // Prey tokens vanish from the map only when asked: by the GM on a Secret Vore, or by a predator whose feat allows it.
+  const hideTokens = !!hide && (secret || gm || hidesPrey(pred));
 
   for (const id of preyIds) {
     const prey = scene.tokens.get(id);
@@ -188,7 +190,7 @@ export async function startVore({ sceneId, predId, preyIds, slot = 0, forced = f
       [`${FLAG}.prey`]: { predatorId: predId, slot, digested: false, original, added, fullCover: slotCfg.fullCover !== false, timed: initialTimedState(prey, cleanDigest(digestChoice)), heal: cleanDigest(digestChoice).effect === "heal", secret: !!secret, stage: 0 }
     };
     if (slotCfg.preyImg) update["texture.src"] = slotCfg.preyImg;
-    if (secret) update.hidden = true; // Secret Vore: the prey vanishes from everyone else's view
+    if (hideTokens) update.hidden = true; // hidden prey: the token vanishes from everyone else's view
     await prey.update(update, moveOpts({ animate: true }));
     if (slotCfg.gearMode === "strip") {
       const gear = await stripGear(prey);
@@ -203,18 +205,26 @@ export async function startVore({ sceneId, predId, preyIds, slot = 0, forced = f
   if (!names.length) return;
   await setPredPreys(pred, [...ids]);
   logEvent(scene, `${logName(pred)} swallowed ${swallowed.map(logName).join(", ")}${forced ? " (they forced their way in)" : ""}${swallowed.some((p) => getPrey(p)?.timed) ? " \u2014 timed digestion" : ""}.`, { secret });
-  playEvent(pred, slot, "swallowSound", secret ? swallowed : null);
+  if (!hideTokens) playEvent(pred, slot, "swallowSound", secret ? swallowed : null); // no sound while the prey is hidden
   for (const prey of swallowed) await describeInside(prey, pred, slot, "descSwallow");
-  const template = forced
-    ? (slotCfg.forceFedMessage ?? "").trim() || "{prey} forces themselves down {predator}'s throat!"
-    : (slotCfg.swallowMessage ?? "").trim() || "{predator} swallows {prey}.";
-  await say(
-    `<p>${fmtMsg(template, {
-      predator: `<strong>${esc(pred.name)}</strong>`,
-      prey: `<strong>${names.map(esc).join(", ")}</strong>`
-    })}</p>`,
-    { whisper: secret ? audience([pred, ...swallowed]) : undefined }
-  );
+  const whisper = secret ? audience([pred, ...swallowed]) : undefined;
+  const template = (slotCfg.swallowMessage ?? "").trim() || "{predator} swallows {prey}.";
+  if (forced) {
+    // Each prey's own text for this Vore type (set in their Vore tab), one line each.
+    for (const prey of swallowed) {
+      const mine = getConfig(prey).forceFed ?? {};
+      const text = String(mine[slotCfg.label] ?? "").trim() || `{prey} forces themselves into {predator}.`;
+      await say(`<p>${fmtMsg(text, { predator: `<strong>${esc(pred.name)}</strong>`, prey: `<strong>${esc(prey.name)}</strong>` })}</p>`, { whisper });
+    }
+  } else {
+    await say(
+      `<p>${fmtMsg(template, {
+        predator: `<strong>${esc(pred.name)}</strong>`,
+        prey: `<strong>${names.map(esc).join(", ")}</strong>`
+      })}</p>`,
+      { whisper }
+    );
+  }
 }
 
 /** Free a prey token (escape, GM release or restore). */
@@ -277,7 +287,7 @@ export async function digest(prey) {
   await setStatus(prey, "dead", true, true);
   logEvent(scene, `${logName(prey)} was digested${pred ? ` by ${logName(pred)}` : ""}.`, { secret: !!st.secret });
   if (pred) {
-    playEvent(pred, st.slot, "digestSound", st.secret ? [prey] : null);
+    if (!prey.hidden) playEvent(pred, st.slot, "digestSound", st.secret ? [prey] : null);
     await describeInside(prey, pred, st.slot, "descDigested");
   }
 
@@ -288,18 +298,9 @@ export async function digest(prey) {
   let temp = 0;
   if (preyHp && predActor && game.settings.get(MODULE_ID, "digestHeal")) {
     const max = preyHp.effectiveMax ?? preyHp.max ?? 0;
-    if (game.settings.get(MODULE_ID, "healMode") === "dice") {
-      // Dice mode: heal NdS (module settings); temp HP is half of that.
-      const n = Math.max(1, Math.floor(Number(game.settings.get(MODULE_ID, "healDice")) || 2));
-      const sides = Math.max(2, Math.floor(Number(game.settings.get(MODULE_ID, "healDieSize")) || 8));
-      const roll = await new Roll(`${n}d${sides}`).evaluate();
-      await roll.toMessage({ speaker: { alias: pred.name }, flavor: "Digestion healing" });
-      heal = roll.total;
-      temp = Math.floor(heal / 2);
-    } else {
-      heal = Math.floor(max / (Number(game.settings.get(MODULE_ID, "healDivisor")) || 4));
-      temp = Math.floor(max / (Number(game.settings.get(MODULE_ID, "tempDivisor")) || 8));
-    }
+    // The predator recovers 1/4 of the prey's max HP and gains temp HP equal to 1/8.
+    heal = Math.floor(max / 4);
+    temp = Math.floor(max / 8);
     const hp = predActor.system.attributes.hp;
     const predMax = hp.effectiveMax ?? hp.max ?? 0;
     await predActor.update({
@@ -399,6 +400,7 @@ export function registerVoreHooks() {
   // from the actor's prototype token.
   Hooks.on("preUpdateToken", (doc, changes) => {
     const mine = changes.flags?.[MODULE_ID];
+    if (mine?.config) normalizeStages(doc, mine.config);
     if (!mine?.config || flagOf(doc, "config")) return;
     stripDefaultValues(mine.config);
     const base = getConfig(doc, { defaults: false });
@@ -429,7 +431,10 @@ export function registerVoreHooks() {
   // Saving a prototype token (actor) form: same rule, so defaults aren't copied into the actor.
   Hooks.on("preUpdateActor", (actor, changes) => {
     const cfg = changes.prototypeToken?.flags?.[MODULE_ID]?.config;
-    if (cfg) stripDefaultValues(cfg);
+    if (cfg) {
+      normalizeStages(actor, cfg);
+      stripDefaultValues(cfg);
+    }
   });
 
   Hooks.on("deleteToken", async (doc) => {

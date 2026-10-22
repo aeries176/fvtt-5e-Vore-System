@@ -1,8 +1,8 @@
-import { askDigest } from "./digestchoice.js";
+import { askSwallow } from "./digestchoice.js";
+import { TYPES, MAX_SLOTS } from "./const.js";
 import { MODULE_ID } from "./const.js";
-import { getPrey, getPred, getConfig, activeSlots, ownsToken, esc, isEndoOnly } from "./util.js";
+import { getPrey, getPred, getConfig, activeSlots, ownsToken, esc, isEndoOnly, effectiveSlot } from "./util.js";
 import { request } from "./socket.js";
-import { addDevourFeature } from "./devour.js";
 import { isInsideGroup, promptWhisper } from "./inside.js";
 import { stomachOn, stomachStrikeAction } from "./stomach.js";
 import { toolbarHTML, runPresetAction } from "./presets.js";
@@ -123,37 +123,17 @@ export async function manualVore({ secret = false } = {}) {
   });
   if (!predId) return;
   const pred = sel.find((t) => t.id === predId);
-  const slots = activeSlots(getConfig(pred));
-  let slot = slots[0].index;
-  if (slots.length > 1) {
-    const chosen = await DialogV2.wait({
-      window: { title: "Vore type" },
-      content: "<p>Which Vore type?</p>",
-      buttons: slots.map((s) => ({ action: String(s.index), label: s.label, callback: () => s.index })),
-      rejectClose: false
-    });
-    if (chosen === null || chosen === undefined) return;
-    slot = Number(chosen);
-  }
+  const slots = activeSlots(getConfig(pred)).map((x) => ({ index: x.index, label: x.label }));
   const preyIds = sel.filter((t) => t.id !== predId && !getPrey(t)).map((t) => t.id);
-  const digest = await askDigest();
-  if (!digest) return;
-  request("manualVore", { sceneId: pred.parent.id, predId, preyIds, slot, secret, digest });
+  const pick = await askSwallow({ slots, title: `Vore: ${pred.name}`, pred, secret });
+  if (!pick) return;
+  const { slot, digest, hide } = pick;
+  request("manualVore", { sceneId: pred.parent.id, predId, preyIds, slot, secret, hide, digest });
 }
 
 /* -------------------------------------------- */
 /*  Hooks                                        */
 /* -------------------------------------------- */
-
-const hudButton = (action, icon, tip) => {
-  const b = document.createElement("button");
-  b.type = "button";
-  b.className = "control-icon";
-  b.dataset.voreAction = action;
-  b.dataset.tooltip = tip;
-  b.innerHTML = `<i class="fa-solid ${icon}"></i>`;
-  return b;
-};
 
 export function registerUIHooks() {
   // All Vore actions live in their own "Vore Controls" group in the scene controls.
@@ -164,21 +144,33 @@ export function registerUIHooks() {
       if (!t) return ui.notifications.warn("Control a token first.");
       fn(t);
     };
+    // Which tools show depends on the controlled token, so players only see what applies to them right now.
+    const ctx = () => {
+      const doc = canvas.tokens?.controlled?.[0]?.document;
+      const st = doc && getPrey(doc);
+      const digested = !!doc && (!!st?.digested || !!doc.getFlag(MODULE_ID, "digested"));
+      const held = !!st && !st.digested;
+      const holding = !!doc && (getPred(doc)?.preyIds ?? []).some((id) => {
+        const p = doc.parent.tokens.get(id);
+        return p && !getPrey(p)?.digested;
+      });
+      return { doc, held, digested, holding, free: !!doc && !st && !digested };
+    };
     const list = [
-      { name: "vore-check", title: "Vore check (controlled token vs targets)", icon: "fa-solid fa-dice-d20", visible: playersCanVore(), onChange: withToken(voreAction) },
-      { name: "vore-feed", title: "Feed yourself to the targeted predator", icon: "fa-solid fa-bowl-food", visible: game.user.isGM || game.settings.get(MODULE_ID, "allowFeeding"), onChange: withToken(feedAction) },
-      { name: "vore-panic", title: "Panic release (digested players: ask the GM to be let out)", icon: "fa-solid fa-life-ring", visible: true, onChange: withToken(panicAction) },
-      { name: "vore-escape", title: "Struggle: escape check", icon: "fa-solid fa-person-running", visible: true, onChange: withToken(escapeAction) },
-      { name: "vore-churn", title: "Churn prey you hold", icon: "fa-solid fa-rotate", visible: true, onChange: withToken(churnAction) },
-      { name: "vore-release", title: "Release prey you hold", icon: "fa-solid fa-door-open", visible: true, onChange: withToken(releaseAction) },
-      { name: "vore-endo", title: "Toggle Endo", icon: "fa-solid fa-heart", visible: true, onChange: withToken(endoAction) },
-      { name: "vore-strike", title: "Strike from within", icon: "fa-solid fa-hand-fist", visible: game.settings.get(MODULE_ID, "preyStrikeBack") || stomachOn(), onChange: withToken(strikeAction) },
-      { name: "vore-restore", title: "Release / Restore selected tokens (GM)", icon: "fa-solid fa-person-walking-arrow-right", visible: game.user.isGM, onChange: () => {
+      { name: "vore-check", title: "Vore check (controlled token vs targets)", icon: "fa-solid fa-dice-d20", visible: () => game.user.isGM, onChange: withToken(voreAction) },
+      { name: "vore-feed", title: "Feed yourself to the targeted predator", icon: "fa-solid fa-bowl-food", visible: () => game.user.isGM, onChange: withToken(feedAction) },
+      { name: "vore-panic", title: "Panic release (digested players: ask the GM to be let out)", icon: "fa-solid fa-life-ring", visible: () => game.user.isGM || ctx().digested, onChange: withToken(panicAction) },
+      { name: "vore-escape", title: "Struggle: escape check", icon: "fa-solid fa-person-running", visible: () => game.user.isGM, onChange: withToken(escapeAction) },
+      { name: "vore-churn", title: "Churn prey you hold", icon: "fa-solid fa-rotate", visible: () => game.user.isGM, onChange: withToken(churnAction) },
+      { name: "vore-release", title: "Release prey you hold", icon: "fa-solid fa-door-open", visible: () => game.user.isGM, onChange: withToken(releaseAction) },
+      { name: "vore-endo", title: "Toggle Endo", icon: "fa-solid fa-heart", visible: () => game.user.isGM, onChange: withToken(endoAction) },
+      { name: "vore-strike", title: "Strike from within", icon: "fa-solid fa-hand-fist", visible: () => (game.user.isGM || ctx().held) && (game.settings.get(MODULE_ID, "preyStrikeBack") || stomachOn()), onChange: withToken(strikeAction) },
+      { name: "vore-restore", title: "Release / Restore selected tokens (GM)", icon: "fa-solid fa-person-walking-arrow-right", visible: () => game.user.isGM, onChange: () => {
           const sel = canvas.tokens.controlled.map((t) => t.document);
           if (!sel.length) return ui.notifications.warn("Select the held or digested tokens first.");
           for (const t of sel) request("release", { sceneId: t.parent.id, tokenId: t.id, restoreImage: true });
         } },
-      { name: "vore-reset", title: "Reset all Vore state in this scene (GM unstick tool)", icon: "fa-solid fa-triangle-exclamation", visible: game.user.isGM, onChange: async () => {
+      { name: "vore-reset", title: "Reset all Vore state in this scene (GM unstick tool)", icon: "fa-solid fa-triangle-exclamation", visible: () => game.user.isGM, onChange: async () => {
           const ok = await DialogV2.confirm({
             window: { title: "Reset Vore state" },
             content: "<p>Release every held or digested token in this scene and clear all Vore state? Use this if something got stuck.</p>",
@@ -187,17 +179,20 @@ export function registerUIHooks() {
           });
           if (ok) request("resetScene", { sceneId: canvas.scene.id });
         } },
-      { name: "vore-whisper", title: "Whisper inside", icon: "fa-solid fa-comment-dots", visible: true, onChange: withToken(promptWhisper) },
-      { name: "vore-secret-check", title: "Secret Vore check (GM: private check, hidden prey)", icon: "fa-solid fa-user-secret", visible: game.user.isGM, onChange: withToken((t) => voreAction(t, { secret: true })) },
-      { name: "vore", title: "Vore (selected tokens, no check)", icon: "fa-solid fa-utensils", visible: game.user.isGM, onChange: () => manualVore() },
-      { name: "vore-secret", title: "Secret GM Vore (selected tokens, no check, hidden)", icon: "fa-solid fa-eye-slash", visible: game.user.isGM, onChange: () => manualVore({ secret: true }) }
+      { name: "vore-whisper", title: "Whisper inside", icon: "fa-solid fa-comment-dots", visible: () => game.user.isGM || ctx().held || ctx().holding, onChange: withToken(promptWhisper) },
+      { name: "vore-secret-check", title: "Secret Vore check (GM: private check, hidden prey)", icon: "fa-solid fa-user-secret", visible: () => game.user.isGM, onChange: withToken((t) => voreAction(t, { secret: true })) },
+      { name: "vore", title: "Vore (selected tokens, no check)", icon: "fa-solid fa-utensils", visible: () => game.user.isGM, onChange: () => manualVore() },
+      { name: "vore-secret", title: "Secret GM Vore (selected tokens, no check, hidden)", icon: "fa-solid fa-eye-slash", visible: () => game.user.isGM, onChange: () => manualVore({ secret: true }) }
     ];
     // Opening the group activates its active tool, so that must be a harmless selector, never an action.
     const tools = {
-      "vore-select": { name: "vore-select", title: "Vore Controls (select tokens)", icon: "fa-solid fa-hand-pointer", order: -1, visible: true, onChange: () => {} }
+      // Named "select" like Foundry's own select tool, so drag/box selecting works while this group is open.
+      select: { name: "select", title: "Select Token", icon: "fa-solid fa-expand", order: -1, visible: true, onChange: () => {} }
     };
     list.forEach((tool, i) => {
-      tools[tool.name] = { ...tool, order: i, button: true };
+      const { visible, ...rest } = tool;
+      // A getter, so the tool list follows the controlled token every time the controls re-render.
+      tools[tool.name] = Object.defineProperty({ ...rest, order: i, button: true }, "visible", { get: visible, enumerable: true });
     });
     const group = {
       name: "vore",
@@ -205,62 +200,33 @@ export function registerUIHooks() {
       icon: "fa-solid fa-utensils",
       order: 98,
       layer: "tokens", // keeps token selection and targeting working while this group is open
-      visible: true,
-      activeTool: "vore-select",
+      activeTool: "select",
       tools: Array.isArray(controls) ? Object.values(tools) : tools
     };
+    // Players only see the group while one of its few tools applies to them (the rest live on the Vore features).
+    Object.defineProperty(group, "visible", { get: () => game.user.isGM || ctx().held || ctx().digested || ctx().holding, enumerable: true });
     if (Array.isArray(controls)) controls.push(group);
     else controls.vore = group;
   });
 
-  Hooks.on("renderTokenHUD", (hud, html) => {
-    if (!game.settings.get(MODULE_ID, "hudButtons")) return; // Vore actions live in Vore Controls by default
-    const doc = hud.document ?? hud.object?.document;
-    const col = html.querySelector(".col.right");
-    if (!doc?.actor || !col) return;
-    const owner = ownsToken(doc);
-    const prey = getPrey(doc);
-    const hasPrey = (getPred(doc)?.preyIds ?? []).some((id) => !getPrey(doc.parent.tokens.get(id))?.digested);
-    const buttons = [];
-    if (owner && !prey && playersCanVore()) buttons.push(hudButton("vore", "fa-utensils", "Vore"));
-    if (owner && !prey && (game.user.isGM || game.settings.get(MODULE_ID, "allowFeeding"))) {
-      buttons.push(hudButton("feed", "fa-bowl-food", "Feed yourself to the targeted predator"));
-    }
-    if (owner && !prey && !isEndoOnly(doc)) {
-      const endoOn = !!doc.getFlag(MODULE_ID, "endo");
-      if (endoOn || game.settings.get(MODULE_ID, "allowEndo")) {
-        buttons.push(hudButton("endo", endoOn ? "fa-heart" : "fa-heart-crack", endoOn ? "Endo: ON (click to turn off)" : "Endo: off (click to turn on)"));
+  // Re-render the controls when the selection or Vore state changes, so the visible tools stay in step.
+  let refreshTimer = null;
+  const refreshControls = () => {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      try {
+        ui.controls?.render();
+      } catch (e) {
+        console.warn("vore-system | controls refresh failed", e);
       }
-    }
-    if (owner && prey && !prey.digested) buttons.push(hudButton("escape", "fa-person-running", "Escape (struggle)"));
-    if (owner && prey && !prey.digested && (game.settings.get(MODULE_ID, "preyStrikeBack") || stomachOn())) {
-      buttons.push(hudButton("strike", "fa-hand-fist", "Strike from within"));
-    }
-    if (owner && isInsideGroup(doc)) buttons.push(hudButton("whisper", "fa-comment-dots", "Whisper inside"));
-    if (owner && hasPrey) {
-      if (!isEndoOnly(doc)) buttons.push(hudButton("churn", "fa-rotate", "Churn"));
-      buttons.push(hudButton("releasePrey", "fa-door-open", "Release prey"));
-    }
-    if (game.user.isGM && (prey || doc.getFlag(MODULE_ID, "digested"))) {
-      buttons.push(hudButton("release", "fa-person-walking-arrow-right", "Release / Restore this token (GM)"));
-    }
-    for (const b of buttons) {
-      b.addEventListener("click", () => {
-        const a = b.dataset.voreAction;
-        if (a === "vore") voreAction(doc);
-        else if (a === "feed") feedAction(doc);
-        else if (a === "endo") endoAction(doc);
-        else if (a === "escape") escapeAction(doc);
-        else if (a === "strike") strikeAction(doc);
-        else if (a === "whisper") promptWhisper(doc);
-        else if (a === "churn") churnAction(doc);
-        else if (a === "releasePrey") releaseAction(doc);
-        else request("release", { sceneId: doc.parent.id, tokenId: doc.id, restoreImage: true });
-        hud.close?.();
-      });
-      col.append(b);
-    }
+    }, 80);
+  };
+  Hooks.on("controlToken", refreshControls);
+  Hooks.on("updateToken", (doc, change) => {
+    if (change?.flags?.[MODULE_ID] !== undefined || foundry.utils.hasProperty(change, `flags.${MODULE_ID}`)) refreshControls();
   });
+  Hooks.on("deleteToken", refreshControls);
+  Hooks.on("canvasReady", refreshControls);
 
   // The in-world token config and the actor's prototype token config are separate application classes.
   Hooks.on("renderTokenConfig", injectVoreTab);
@@ -274,7 +240,8 @@ export function registerUIHooks() {
 const P = `flags.${MODULE_ID}.config`;
 
 function field(label, input, hint = "") {
-  return `<div class="form-group"><label>${label}</label><div class="form-fields">${input}</div>${hint ? `<p class="hint">${hint}</p>` : ""}</div>`;
+  const help = hint ? ` <i class="fa-regular fa-circle-question vore-help" data-tooltip="${esc(hint)}" title="${esc(hint)}"></i>` : "";
+  return `<div class="form-group"><label>${label}${help}</label><div class="form-fields">${input}</div></div>`;
 }
 const check = (n, v) => `<input type="checkbox" name="${P}.${n}" ${v ? "checked" : ""}>`;
 const num = (n, v, step = 1) => `<input type="number" name="${P}.${n}" value="${v ?? ""}" step="${step}">`;
@@ -285,39 +252,47 @@ const select = (n, v, options) =>
 const area = (n, v, placeholder) =>
   `<textarea name="${P}.${n}" rows="3" placeholder="${esc(placeholder)}">${esc(v)}</textarea>`;
 const range = (n, v) => `<range-picker name="${P}.${n}" min="0" max="1" step="0.05" value="${v}"></range-picker>`;
-const tri = (n, v) => select(n, v ?? "", [["", "Keep normal"], ["on", "On"], ["off", "Off"]]);
-
 /** A collapsible section. Everything inside is still submitted when it is closed. */
 const section = (title, body, { open = false, cls = "" } = {}) =>
   `<details class="vore-section ${cls}" ${open ? "open" : ""}><summary>${title}</summary><div class="vore-section-body">${body}</div></details>`;
 
-function stageHTML(k, n, st, label) {
-  const s = st ?? {};
-  return `<fieldset><legend>${label}</legend>
-    ${field("Prey token image", file(`${k}.stage${n}.preyImg`, s.preyImg ?? "", "imagevideo"), "Empty keeps the option's normal image.")}
-    ${field("Sound", file(`${k}.stage${n}.sound`, s.sound ?? "", "audio"), "Empty keeps the option's normal sound.")}
-    ${field("Effect color", text(`${k}.stage${n}.fxColor`, s.fxColor ?? ""), "A hex color like #3d7a2b. Empty keeps the normal color.")}
-    ${field("Tint strength", text(`${k}.stage${n}.fxStrength`, s.fxStrength ?? ""), "0 to 1. Empty keeps the normal value.")}
-    ${field("Distortion / blur amount", text(`${k}.stage${n}.fxDistortion`, s.fxDistortion ?? ""), "0 to 1. Empty keeps the normal value.")}
-    ${field("Vignette", tri(`${k}.stage${n}.fxVignette`, s.fxVignette))}
-    ${field("Flat tint", tri(`${k}.stage${n}.fxTint`, s.fxTint))}
-    ${field("Pulse", tri(`${k}.stage${n}.fxPulse`, s.fxPulse))}
-    ${field("Liquid distortion", tri(`${k}.stage${n}.fxLiquid`, s.fxLiquid))}
-    ${field("Blur", tri(`${k}.stage${n}.fxBlur`, s.fxBlur))}
+/** One digestion stage. Fields start at what the stage looks like now; anything left equal to the option is saved as "unchanged". */
+function stageHTML(k, n, slot, label) {
+  const g = `${k}.stage${n}`;
+  const raw = slot[`stage${n}`] ?? {};
+  const eff = effectiveSlot(slot, n);
+  const cell = (text, input) => `<label class="vs-cell"><span>${text}</span>${input}</label>`;
+  const box = (key, text) => `<label class="vs-box"><input type="checkbox" name="${P}.${g}.${key}" ${eff[key] ? "checked" : ""}> ${text}</label>`;
+  const slider = (key, v) => `<range-picker name="${P}.${g}.${key}" min="0" max="1" step="0.05" value="${Number(v) || 0}"></range-picker>`;
+  return `<fieldset class="vore-stage"><legend>${label}</legend>
+    <div class="vs-grid">
+      ${cell("Token image (blank = same)", file(`${g}.preyImg`, raw.preyImg ?? "", "imagevideo"))}
+      ${cell("Loop sound (blank = same)", file(`${g}.sound`, raw.sound ?? "", "audio"))}
+      ${cell("Color", `<input type="color" name="${P}.${g}.fxColor" value="${eff.fxColor || "#7a1f2b"}">`)}
+      ${cell("Tint strength", slider("fxStrength", eff.fxStrength))}
+      ${cell("Distortion / blur", slider("fxDistortion", eff.fxDistortion))}
+    </div>
+    <div class="vs-boxes">${box("fxVignette", "Vignette")}${box("fxTint", "Tint")}${box("fxPulse", "Pulse")}${box("fxLiquid", "Sway")}${box("fxBlur", "Blur")}</div>
   </fieldset>`;
 }
 
 function slotHTML(i, s) {
   const k = `slots.${i}`;
-  const title = `Vore option ${i + 1}${s.label ? ` — ${esc(s.label)}` : i ? " (empty: disabled)" : ""}`;
+  const title = `Vore option ${i + 1}${s.label ? ` \u2014 ${esc(s.label)}` : ""}`;
+  const known = TYPES.includes(s.label);
+  const typeSelect = `<select name="${P}.${k}.label" data-vore-type>${i ? `<option value="" ${s.label ? "" : "selected"}>(none)</option>` : ""}${[
+    ...TYPES,
+    ...(s.label && !known ? [s.label] : [])
+  ]
+    .map((t) => `<option value="${esc(t)}" ${s.label === t ? "selected" : ""}>${esc(t)}${TYPES.includes(t) ? "" : " (custom)"}</option>`)
+    .join("")}</select>`;
 
   const basics = `
-    ${field("Name", text(`${k}.label`, s.label), i ? "Leave the name empty to disable this option." : "")}
+    ${field("Type", typeSelect, "Which kind of Vore this option is. Each type can be used once per character; prey write their own force-feed text for each type in their own Vore tab.")}
     ${field("Swallow message", text(`${k}.swallowMessage`, s.swallowMessage), "Use {predator} and {prey}.")}
     ${field("Digestion message", text(`${k}.digestMessage`, s.digestMessage), "Use {predator}, {prey}, {heal} and {temp}.")}`;
 
   const moreMessages = `
-    ${field("Force-fed message", text(`${k}.forceFedMessage`, s.forceFedMessage), "When prey forces themselves into a resisting predator. Use {predator} and {prey}.")}
     ${field("Forced-release message", text(`${k}.forceReleaseMessage`, s.forceReleaseMessage), "When a predator forces resisting prey out. Use {predator} and {prey}.")}`;
 
   const rules = `
@@ -346,9 +321,8 @@ function slotHTML(i, s) {
     <p class="hint">Private to the prey's player. One line per variant; a random line is used each time. Use {predator} and {prey}.</p>
     ${field("When swallowed", area(`${k}.descSwallow`, s.descSwallow, "The world goes dark and warm as {predator} swallows you whole."))}
     ${field("Each of the predator's turns", area(`${k}.descRound`, s.descRound, "The walls squeeze around you."))}
-    ${field("HP drops below 75%", area(`${k}.descHp75`, s.descHp75, ""))}
-    ${field("HP drops below 50%", area(`${k}.descHp50`, s.descHp50, ""))}
-    ${field("HP drops below 25%", area(`${k}.descHp25`, s.descHp25, ""))}
+    ${field("HP drops to 66% (stage 1)", area(`${k}.descHp66`, s.descHp66 || s.descHp75, ""))}
+    ${field("HP drops to 33% (stage 2)", area(`${k}.descHp33`, s.descHp33 || s.descHp50 || s.descHp25, ""))}
     ${field("Dying (at 0 HP)", area(`${k}.descDying`, s.descDying, "Your strength fades as the dark closes in."))}
     ${field("When digested", area(`${k}.descDigested`, s.descDigested, ""))}`;
 
@@ -356,7 +330,7 @@ function slotHTML(i, s) {
     ${field("Vignette", check(`${k}.fxVignette`, s.fxVignette))}
     ${field("Flat tint", check(`${k}.fxTint`, s.fxTint))}
     ${field("Pulse (breathing)", check(`${k}.fxPulse`, s.fxPulse), "Animates the vignette/tint.")}
-    ${field("Liquid distortion", check(`${k}.fxLiquid`, s.fxLiquid), "Wobbles the whole canvas like looking through fluid.")}
+    ${field("Liquid sway", check(`${k}.fxLiquid`, s.fxLiquid), "A slow, light swaying of the whole view, like being carried. Cheap to run.")}
     ${field("Blur", check(`${k}.fxBlur`, s.fxBlur))}
     ${field("Stomach interior art", check(`${k}.fxBuiltinArt`, s.fxBuiltinArt), "Overlays the built-in stylized stomach-interior art on the prey's screen.")}
     ${field("Color", `<input type="color" name="${P}.${k}.fxColor" value="${s.fxColor}">`)}
@@ -368,13 +342,13 @@ function slotHTML(i, s) {
     ${field("Distortion / blur amount", range(`${k}.fxDistortion`, s.fxDistortion))}`;
 
   const stages = `
-    <p class="hint">As the prey's HP falls, these replace the option's normal image, sound and screen effects. Stage 1 starts at 66% HP, stage 2 at 33% HP (and keeps stage 1's changes). Anything left empty is not changed.</p>
-    ${stageHTML(k, 1, s.stage1, "Stage 1 (66% HP or less)")}
-    ${stageHTML(k, 2, s.stage2, "Stage 2 (33% HP or less)")}`;
+    <p class="hint">Stage 1 starts at 66% HP and stage 2 at 33% (keeping stage 1's changes). Anything you leave the same as the option, or the previous stage, stays unchanged.</p>
+    ${stageHTML(k, 1, s, "Stage 1 (66% HP or less)")}
+    ${stageHTML(k, 2, s, "Stage 2 (33% HP or less)")}`;
 
   const advanced = section("Extra messages", moreMessages) + section("Position and size", placement) + section("Overlay image and distortion", fxMore);
-  return `<div class="vore-panel" data-vore-panel="${i}" ${i ? "hidden" : ""}>
-    <p class="vore-panel-title">${title}</p>
+  return `<div class="vore-panel" data-vore-panel="${i}" hidden>
+    <p class="vore-panel-title">${title}${i ? ` <button type="button" class="vore-remove" data-vore-remove="${i}"><i class="fa-solid fa-trash"></i> Remove this option</button>` : ""}</p>
     ${toolbarHTML(i, true)}
     ${section("Basics", basics + rules, { open: true })}
     ${section("Look: token and screen effects", look + fx)}
@@ -386,28 +360,40 @@ function slotHTML(i, s) {
 }
 
 function formHTML(cfg) {
-  const sheet = `<div class="form-group"><label>Vore Actions feature</label><div class="form-fields">
-      <button type="button" data-vore-add-devour><i class="fa-solid fa-plus"></i> Add Vore Actions to this actor</button>
-    </div><p class="hint">Adds a "Vore Actions" feature with Devour, Feed, Endo, Churn, Release prey and Struggle buttons. It is also in the "Vore System" compendium: drag it onto any sheet.</p></div>`;
-  const general = `
-    ${field("Sound fade distance (grid units)", num("soundRange", cfg.soundRange), "The sound is silent beyond this distance from the predator.")}
-    ${field("Muffle prey chat", check("muffleChat", cfg.muffleChat), "Everyone except the predator's owner and prey's bellymates sees muffled text, and only within the world's muffled chat range.")}
-    <p class="hint"><strong>Stomach rules</strong> (only used when the world setting is on; blank = automatic)</p>
-    ${field("Stomach AC", num("stomachAC", cfg.stomachAC), "Blank = 10 + the predator's CON modifier.")}
-    ${field("Stomach HP", num("stomachHP", cfg.stomachHP), "Blank = half the predator's max HP.")}
-    <p class="hint">Copy, paste or share <em>every</em> option at once:</p>
-    ${toolbarHTML("all")}
-    ${sheet}`;
-  const pills = [0, 1, 2]
-    .map((i) => {
-      const l = cfg.slots[i]?.label;
-      return `<button type="button" class="vore-pill ${i === 0 ? "active" : ""}" data-vore-pill="${i}">${l ? esc(l) : `Option ${i + 1}${i ? " (off)" : ""}`}</button>`;
-    })
-    .join("");
+  const forced = TYPES.map((t) => field(t, text(`forceFed.${t}`, cfg.forceFed?.[t] ?? ""), "")).join("");
+  const general =
+    section(
+      "Sound and chat",
+      `${field("Sound fade distance (grid units)", num("soundRange", cfg.soundRange), "The sound is silent beyond this distance from the predator.")}
+       ${field("Muffle prey chat", check("muffleChat", cfg.muffleChat), "Everyone except the predator's owner and prey's bellymates sees muffled text, and only within the world's muffled chat range.")}`,
+      { open: true }
+    ) +
+    section(
+      "Force-feed text",
+      `<p class="hint">What this character says when they force themselves into a predator, by the predator's Vore type. Use {prey} and {predator}.</p>${forced}`
+    ) +
+    section(
+      "Stomach (AC and HP)",
+      `<p class="hint">Only used when the "Stomach rules" world setting is on. Leave blank for automatic values.</p>
+       ${field("Stomach AC", num("stomachAC", cfg.stomachAC), "Blank = 10 + the predator's CON modifier.")}
+       ${field("Stomach HP", num("stomachHP", cfg.stomachHP), "Blank = half the predator's max HP.")}`
+    ) +
+    section(
+      "Copy, paste and presets",
+      `<p class="hint">Works on every Vore option at once. Each option also has its own buttons.</p>${toolbarHTML("all")}`
+    );
+  const pills = Array.from({ length: MAX_SLOTS }, (_, i) => {
+    const l = cfg.slots[i]?.label;
+    const on = i === 0 || !!l;
+    return `<button type="button" class="vore-pill" data-vore-pill="${i}" ${on ? "" : "hidden"}>${esc(l || `Option ${i + 1}`)}</button>`;
+  }).join("");
+  const anyOff = Array.from({ length: MAX_SLOTS }, (_, i) => i).some((i) => i && !cfg.slots[i]?.label);
   return `<div class="vore-config">
-    <nav class="vore-pills">${pills}<button type="button" class="vore-pill" data-vore-pill="general"><i class="fa-solid fa-gear"></i> General</button></nav>
-    ${[0, 1, 2].map((i) => slotHTML(i, cfg.slots[i])).join("")}
-    <div class="vore-panel" data-vore-panel="general" hidden>${general}</div>
+    <nav class="vore-pills"><button type="button" class="vore-pill active" data-vore-pill="general"><i class="fa-solid fa-gear"></i> General</button></nav>
+    <p class="vore-pills-title">Vore Options</p>
+    <nav class="vore-pills">${pills}<button type="button" class="vore-pill vore-plus" data-vore-add ${anyOff ? "" : "hidden"} title="Add another Vore option"><i class="fa-solid fa-plus"></i></button></nav>
+    <div class="vore-panel" data-vore-panel="general">${general}</div>
+    ${Array.from({ length: MAX_SLOTS }, (_, i) => slotHTML(i, cfg.slots[i])).join("")}
   </div>`;
 }
 
@@ -443,12 +429,56 @@ function injectVoreTab(app, html) {
   section.dataset.group = group;
   section.innerHTML = formHTML(getConfig(doc)); // shows the module defaults too; saving never copies them in
   sections.at(-1).after(section);
+  const typeSelects = () => [...section.querySelectorAll("[data-vore-type]")];
+  const show = (id) => {
+    section.querySelectorAll("[data-vore-pill]").forEach((p) => p.classList.toggle("active", p.dataset.vorePill === String(id)));
+    section.querySelectorAll("[data-vore-panel]").forEach((p) => (p.hidden = p.dataset.vorePanel !== String(id)));
+  };
+  // Each type can be used once: types taken by another option are greyed out here.
+  const refreshTypes = () => {
+    const used = typeSelects().map((x) => x.value).filter(Boolean);
+    for (const sel of typeSelects()) {
+      for (const opt of sel.options) opt.disabled = !!opt.value && opt.value !== sel.value && used.includes(opt.value);
+    }
+    typeSelects().forEach((sel, i) => {
+      const pill = section.querySelector(`[data-vore-pill="${i}"]`);
+      if (pill) {
+        pill.textContent = sel.value || `Option ${i + 1}`;
+        pill.hidden = i > 0 && !sel.value;
+      }
+    });
+    section.querySelector("[data-vore-add]").hidden = typeSelects().every((sel, i) => i === 0 || !!sel.value);
+  };
+  refreshTypes();
+  section.addEventListener("change", (event) => {
+    if (event.target?.matches?.("[data-vore-type]")) refreshTypes();
+  });
+  section.addEventListener("vore-refill", refreshTypes);
   section.addEventListener("click", (event) => {
     const pill = event.target.closest("[data-vore-pill]");
     if (pill) {
       event.preventDefault();
-      section.querySelectorAll("[data-vore-pill]").forEach((p) => p.classList.toggle("active", p === pill));
-      section.querySelectorAll("[data-vore-panel]").forEach((p) => (p.hidden = p.dataset.vorePanel !== pill.dataset.vorePill));
+      show(pill.dataset.vorePill);
+      return;
+    }
+    if (event.target.closest("[data-vore-add]")) {
+      event.preventDefault();
+      const sels = typeSelects();
+      const next = sels.findIndex((sel, i) => i > 0 && !sel.value);
+      const free = TYPES.find((t) => !sels.some((sel) => sel.value === t));
+      if (next < 0 || !free) return;
+      sels[next].value = free;
+      refreshTypes();
+      show(next);
+      return;
+    }
+    const rm = event.target.closest("[data-vore-remove]");
+    if (rm) {
+      event.preventDefault();
+      const sel = typeSelects()[Number(rm.dataset.voreRemove)];
+      if (sel) sel.value = "";
+      refreshTypes();
+      show("general");
       return;
     }
     const btn = event.target.closest("[data-vore-act]");
@@ -457,5 +487,4 @@ function injectVoreTab(app, html) {
     const slot = btn.dataset.slot === "all" ? "all" : Number(btn.dataset.slot);
     runPresetAction(section, btn.dataset.voreAct, slot);
   });
-  section.querySelector("[data-vore-add-devour]")?.addEventListener("click", () => addDevourFeature(doc.actor ?? doc));
 }

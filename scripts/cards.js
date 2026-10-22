@@ -10,7 +10,7 @@ import {
 } from "./rules.js";
 import { describeInside } from "./inside.js";
 import { stepTimed } from "./timed.js";
-import { askDigest } from "./digestchoice.js";
+import { askSwallow, digestFields, hideField, readDigest } from "./digestchoice.js";
 
 const FLAG = `flags.${MODULE_ID}.card`;
 const SKILL_NAMES = { ath: "Athletics", acr: "Acrobatics" };
@@ -53,9 +53,9 @@ function contestHTML(card) {
 function typeHTML(card) {
   const btns = card.resolved
     ? ""
-    : card.slots.map((s) => `<button type="button" data-vore="type" data-slot="${s.index}">${esc(s.label)}</button>`).join("");
+    : `<button type="button" data-vore="type">Choose how to swallow</button>`;
   const prey = card.preyIds.map((id) => name(card, id)).join(", ");
-  return `<div class="vore-card"><h3>Choose Vore Type</h3><p>${card.forced ? `${prey} forced their way into ${name(card, card.predId)}. Choose how.` : `${name(card, card.predId)} caught ${prey}.`}</p>${
+  return `<div class="vore-card"><h3>Swallow</h3><p>${card.forced ? `${prey} forced their way into ${name(card, card.predId)}. Choose how.` : `${name(card, card.predId)} caught ${prey}.`}</p>${
     card.resolved ? `<p class="vore-outcome">${card.outcome ?? ""}</p>` : btns
   }</div>`;
 }
@@ -445,11 +445,13 @@ async function promptConsent({ type, sceneId, predId, preyId, slots }) {
       : "";
   const reply = (allow) => (event, button) => ({
     allow,
-    slot: Number(button.form?.elements?.slot?.value ?? slots?.[0]?.index ?? 0)
+    slot: Number(button.form?.elements?.slot?.value ?? slots?.[0]?.index ?? 0),
+    digest: feed && allow ? readDigest(button.form) : null,
+    hide: feed && allow ? !!button.form?.elements?.dhide?.checked : false
   });
   const pick = await DialogV2.wait({
     window: { title: feed ? "Feeding request" : "Release request" },
-    content: `<p>${intro}</p>${picker}`,
+    content: `<p>${intro}</p>${picker}${feed ? digestFields() + hideField(pred) : ""}`,
     buttons: [
       { action: "yes", label: feed ? "Allow Feeding" : "Allow Release", default: true, callback: reply(true) },
       { action: "no", label: feed ? "Resist Feeding" : "Resist Release", callback: reply(false) }
@@ -457,12 +459,7 @@ async function promptConsent({ type, sceneId, predId, preyId, slots }) {
     rejectClose: false
   });
   if (!pick) return;
-  let digest = null;
-  if (feed && pick.allow) {
-    digest = await askDigest("Feeding: how does digestion work?");
-    if (!digest) return;
-  }
-  request("consentReply", { type, sceneId, predId, preyId, allow: pick.allow, slot: pick.slot, digest });
+  request("consentReply", { type, sceneId, predId, preyId, allow: pick.allow, slot: pick.slot, digest: pick.digest, hide: pick.hide });
 }
 
 /** Shown to the GM when a player asks for a panic release. */
@@ -515,7 +512,7 @@ export function registerCardHandlers() {
     if (pred && userCan(userId, pred)) return churn(data);
   });
   register("manualVore", (data, userId) => {
-    if (game.users.get(userId)?.isGM) return startVore({ ...data, secret: !!data.secret });
+    if (game.users.get(userId)?.isGM) return startVore({ ...data, secret: !!data.secret, gm: true });
   });
 
   // GM release / restore of a single token.
@@ -604,7 +601,7 @@ export function registerCardHandlers() {
     await say(`<p><strong>${esc(prey.name)}</strong> tries to feed themselves to <strong>${esc(pred.name)}</strong>.</p>`);
   });
 
-  register("consentReply", async ({ type, sceneId, predId, preyId, allow, slot, digest }, userId) => {
+  register("consentReply", async ({ type, sceneId, predId, preyId, allow, slot, digest, hide }, userId) => {
     const key = `${type}:${preyId}`;
     if (!pending.has(key)) return;
     const pred = tokenDoc(sceneId, predId);
@@ -617,7 +614,7 @@ export function registerCardHandlers() {
       if (allow) {
         const valid = activeSlots(getConfig(pred)).map((s) => s.index);
         const chosen = valid.includes(Number(slot)) ? Number(slot) : valid[0];
-        return startVore({ sceneId, predId, preyIds: [preyId], slot: chosen, digest });
+        return startVore({ sceneId, predId, preyIds: [preyId], slot: chosen, digest, hide: !!hide });
       }
       await say(`<p><strong>${esc(pred.name)}</strong> resists being fed.</p>`);
       return postContest({ kind: "feed", sceneId, predId, preyIds: [preyId] });
@@ -646,7 +643,7 @@ export function registerCardHandlers() {
     );
   });
 
-  register("chooseType", async ({ messageId, slot, digest }, userId) => {
+  register("chooseType", async ({ messageId, slot, digest, hide }, userId) => {
     const msg = game.messages.get(messageId);
     const card = readCard(msg);
     if (!card || card.resolved) return;
@@ -655,7 +652,21 @@ export function registerCardHandlers() {
     card.resolved = true;
     card.outcome = `Type: ${esc(getConfig(tokenDoc(card.sceneId, card.predId)).slots[slot]?.label ?? "")}`;
     await saveCard(msg, card);
-    await startVore({ sceneId: card.sceneId, predId: card.predId, preyIds: card.preyIds, slot, forced: !!card.forced, secret: !!card.secret, digest });
+    await startVore({ sceneId: card.sceneId, predId: card.predId, preyIds: card.preyIds, slot, forced: !!card.forced, secret: !!card.secret, hide: !!hide, digest });
+  });
+
+  // Tidy chat: system lines get a light style, and resolved cards fold down to one line (click to expand).
+  Hooks.on("renderChatMessageHTML", (msg, html) => {
+    if (msg.getFlag(MODULE_ID, "notice")) html.classList.add("vore-notice");
+    const card = msg.getFlag(MODULE_ID, "card");
+    if (!card?.resolved) return;
+    const el = html.querySelector(".vore-card");
+    if (!el) return;
+    el.classList.add("resolved");
+    el.title = "Click to expand or collapse";
+    el.addEventListener("click", (e) => {
+      if (!e.target.closest("button")) el.classList.toggle("open");
+    });
   });
 
   Hooks.on("renderChatMessageHTML", (msg, html) => {
@@ -687,9 +698,9 @@ export function registerCardHandlers() {
         } else if (kind === "damage") {
           request("rollDigest", { messageId: msg.id });
         } else if (kind === "type") {
-          const digest = await askDigest();
-          if (!digest) return (btn.disabled = false);
-          request("chooseType", { messageId: msg.id, slot: Number(btn.dataset.slot), digest });
+          const pick = await askSwallow({ slots: card.slots, title: "Swallow", pred: tokenDoc(card.sceneId, card.predId), secret: !!card.secret });
+          if (!pick) return (btn.disabled = false);
+          request("chooseType", { messageId: msg.id, slot: pick.slot, digest: pick.digest, hide: pick.hide });
         }
       });
     });

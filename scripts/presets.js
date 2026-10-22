@@ -29,7 +29,10 @@ function fill(root, prefix, data) {
   for (const el of inputsFor(root, prefix)) {
     const v = foundry.utils.getProperty(data, el.name.slice(prefix.length));
     if (v === undefined) continue;
-    if (el.type === "checkbox") el.checked = !!v;
+    if (el.type === "checkbox") {
+      if (v === "") continue; // an old preset's "unchanged" stage effect
+      el.checked = v === "off" ? false : !!v;
+    } else if (el.type === "color" && !v) continue;
     else el.value = v ?? "";
   }
 }
@@ -76,7 +79,6 @@ const BUILTIN = {
     scope: "slot",
     builtin: true,
     data: {
-      label: "Slow Digestion",
       fxVignette: true,
       fxPulse: true,
       fxBuiltinArt: true,
@@ -85,9 +87,8 @@ const BUILTIN = {
       fxStrength: 0.3,
       stage1: { fxColor: "#a1472b", fxStrength: "0.5", fxLiquid: "on" },
       stage2: { fxColor: "#5c7a1f", fxStrength: "0.65", fxDistortion: "0.7", fxBlur: "on" },
-      descHp75: "A prickling warmth creeps across your skin.",
-      descHp50: "The juices rise around you, and your gear feels heavy.",
-      descHp25: "Everything is liquid, and you can barely stand."
+      descHp66: "A prickling warmth creeps across your skin, and the juices begin to rise around you.",
+      descHp33: "Everything is liquid, and you can barely stand."
     }
   }
 };
@@ -232,6 +233,7 @@ export async function runPresetAction(root, act, slot) {
     put(json.data);
     loaded();
   }
+  root.dispatchEvent(new CustomEvent("vore-refill"));
 }
 
 export function toolbarHTML(slot, compact = false) {

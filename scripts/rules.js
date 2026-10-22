@@ -17,18 +17,10 @@ const setting = (key, fallback) => {
   return Number.isFinite(v) && v > 0 ? Math.floor(v) : fallback;
 };
 
-/** Base dice, +the same number again every N levels (all configurable in module settings). Default 1d6+CON, +1d6 per 5 levels. */
-export const turnFormula = (actor) => {
-  const base = setting("turnDice", 1);
-  const steps = Math.floor(effectiveLevel(actor) / setting("diceEvery", 5));
-  return fmt(base + base * steps, setting("turnDieSize", 6), conMod(actor));
-};
-/** Default 2d6+CON, +2d6 per 5 levels. */
-export const churnFormula = (actor) => {
-  const base = setting("churnDice", 2);
-  const steps = Math.floor(effectiveLevel(actor) / setting("diceEvery", 5));
-  return fmt(base + base * steps, setting("churnDieSize", 6), conMod(actor));
-};
+/** Digestion damage per predator turn: 1d6 + CON, with another 1d6 every 5 levels. */
+export const turnFormula = (actor) => fmt(1 + Math.floor(effectiveLevel(actor) / 5), 6, conMod(actor));
+/** Churn: 2d6 + CON, with another 2d6 every 5 levels. */
+export const churnFormula = (actor) => fmt(2 + 2 * Math.floor(effectiveLevel(actor) / 5), 6, conMod(actor));
 
 /** Roll Athletics or Acrobatics via dnd5e and return the total. mode: "norm" | "adv" | "dis". */
 export async function rollSkillTotal(actor, skill, mode = "norm") {
@@ -144,9 +136,9 @@ export async function applyPreyDamage(prey, total) {
     await actor.update({ "system.attributes.hp.value": Math.max(0, before - total) });
   }
   if (hp() > 0) {
-    // Fire the lowest HP threshold (75/50/25%) this hit crossed.
+    // Fire the lowest stage threshold (66% / 33%) this hit crossed.
     if (pred && max > 0) {
-      const crossed = [25, 50, 75].find((t) => (before / max) * 100 > t && (hp() / max) * 100 <= t);
+      const crossed = [33, 66].find((t) => (before / max) * 100 > t && (hp() / max) * 100 <= t);
       if (crossed) await describeInside(prey, pred, st.slot, `descHp${crossed}`);
     }
     return "alive";

@@ -5,10 +5,10 @@ Install: unzip into `Data/modules/vore-system`, enable it in your world. A GM mu
 ## Using it
 - **Token config → Vore tab:** every Vore option and its sub-sections are collapsible.
 - **Token config → Vore tab (GM):** per-option vision limit, tint/vignette, sound range/volumes, muffled chat, and up to 3 Vore options (name, prey image, digested image, internal/external sound, offset, scale).
-- **Vore action:** target token(s), open the Token HUD, click the utensils button. Predator and prey get chat buttons to roll Athletics or Acrobatics. Predator must win; ties favor the prey. Then the predator picks a Vore type.
+- **Vore action:** use the Vore - Devour feature on your character (the GM also has the Vore check tool in Vore Controls) with the prey targeted. Predator and prey get chat buttons to roll Athletics or Acrobatics. Predator must win; ties favor the prey. Then the predator picks the Vore type and how digestion works.
 - **Vore Controls:** all Vore actions have their own group in the scene controls. **GM Vore button:** select 2+ tokens, click the utensils tool in Vore Controls, pick the predator and type. No check.
-- **Churn:** Token HUD button on a predator.
-- **Release / Restore (GM):** Token HUD button on a vored or digested token.
+- **Churn:** the Vore - Churn feature on a predator.
+- **Release / Restore (GM):** the Release / Restore tool in Vore Controls on a vored or digested token.
 - Prey cannot be moved by drag; they follow the predator's position, rotation and flip.
 
 ## Rules implemented
@@ -21,8 +21,8 @@ Install: unzip into `Data/modules/vore-system`, enable it in your world. A GM mu
 - Players can start Vore checks (toggle).
 - Smooth attach: prey is drawn in lockstep with the predator on every client (turn off to fall back to delayed following).
 - Auto-roll for NPCs.
-- Predator heals on digestion (off by default): either a fraction of the prey's max HP or a dice roll (number and size of dice are settings; temp HP is half the roll).
-- Digestion/Churn dice: number of dice, die size, and the level step for extra dice.
+- Predator heals on digestion (a world setting, on or off): 1/4 of the prey's max HP, plus temp HP equal to 1/8.
+- Digestion damage is 1d6 + CON per predator turn and Churn is 2d6 + CON, with another die set every 5 levels.
 
 ## Per-option behavior (Vore tab)
 Each Vore option sets: whether digested remains are left beside the predator or kept inside, Restrained and full cover while held (outsiders can't target held prey; the predator, the prey and the GM still can), and one-shot swallow / escape / digestion sounds. The combat tracker shows who is inside whom.
@@ -37,14 +37,14 @@ Option 1 uses these unless its own fields (or the module settings) say otherwise
 Loops: `gurgle_loop`, `heartbeat_loop`, `slosh_loop`, `bubbling_loop`. One-shots: `swallow`, `escape_splash`, `digest_fizz`, `burp` (nice as a digestion sound). Synthesized placeholders; replace with your own via the Vore tab.
 
 ## Character sheet, compendium and inside experience
-- **Vore Actions feature:** the Vore tab has an "Add Vore Actions to this actor" button, and it is also in the **Vore System** compendium (an editable world compendium the module creates the first time a GM loads the world). It has Devour, Feed, Endo, Churn, Release prey and Struggle buttons that run the module's actions. Older "Devour" features are renamed and topped up when you press the button again. The compendium also holds 39 workshop Vore feats (folders: Predator Feats, Prey Feats) and 8 workshop subclasses (Subclasses folder), rules text only. Console: `game.modules.get("vore-system").api.seedPack()` re-adds anything missing without overwriting your edits.
-- **Inside descriptions:** each Vore option has pools of private whispers for the prey's player: when swallowed, each predator turn, HP below 75/50/25%, dying, and digested. One line per variant, chosen at random.
-- **Inside channel:** `/inside message` (or `/in`) or the HUD whisper button, private between the predator, their prey and the GM.
+- **Vore features:** every player character automatically gets six features, Vore - Devour, Vore - Feed, Vore - Struggle, Vore - Churn, Vore - Release and Vore - Endo (the "Vore - " prefix keeps them together on the sheet). They run the module's actions for your selected token. For NPCs, or characters that lack them, drag them from the compendium onto the sheet. The world setting "Add Vore features to player characters" turns the automatic step off. They are also in the **Vore System** compendium (an editable world compendium the module creates the first time a GM loads the world, folder Character Features), along with 41 workshop Vore feats (folders: Predator Feats, Prey Feats) and 8 workshop subclasses, rules text only. Console: `game.modules.get("vore-system").api.seedPack()` re-adds anything missing without overwriting your edits.
+- **Inside descriptions:** each Vore option has pools of private whispers for the prey's player: when swallowed, each predator turn, HP drops to 66% (stage 1) or 33% (stage 2), dying, and digested. One line per variant, chosen at random.
+- **Inside channel:** `/inside message` (or `/in`) or the Whisper tool or status panel button, private between the predator, their prey and the GM.
 
 ## Feeding, forced release and Endo
-- **Feed:** a prey token targets a predator and uses the Token HUD Feed button (or the Feed feature button). The predator's player chooses Allow Feeding (and picks the Vore type) or Resist Feeding. If resisted, the prey must beat the predator in a Vore check (ties favor the predator); on success the prey picks any of the predator's Vore options and the option's force-fed message is used. Setting: "Prey can feed themselves to predators".
-- **Release prey** now asks the prey's player: Allow Release releases them as normal; Resist Release makes the predator beat the prey in a Vore check (ties favor the prey) to force them out, using the option's forced-release message. A GM releasing prey with no player owner skips the prompt. The GM's HUD Release/Restore button still overrides everything.
-- **Endo:** a toggle on the Token HUD for any predator. While on, prey take no per-turn damage and the timed countdown pauses. Churn turns it off. Setting: "Allow Endo" (off prevents turning it on and ignores it).
+- **Feed:** a prey token targets a predator and uses the Vore - Feed feature. The predator's player chooses Allow Feeding (picking the Vore type, how digestion works and whether to hide the prey token) or Resist Feeding. If resisted, the prey must beat the predator in a Vore check (ties favor the predator); on success the prey picks any of the predator's Vore options and the chat shows the prey's own force-feed text for that type. Setting: "Prey can feed themselves to predators".
+- **Release prey** asks the prey's player: Allow Release releases them as normal; Resist Release makes the predator beat the prey in a Vore check (ties favor the prey) to force them out, using the option's forced-release message. A GM releasing prey with no player owner skips the prompt. The GM's Release / Restore tool still overrides everything.
+- **Endo:** the Vore - Endo feature toggles it for any predator. While on, prey take no per-turn damage and the timed countdown pauses. Churn turns it off. Setting: "Allow Endo" (off prevents turning it on and ignores it).
 
 ## Secret Vore (GM)
 Two extra Vore Controls buttons. **Secret Vore check:** select the predator, target the prey; the check card is GM-only and the target's player gets a private roll dialog. **Secret GM Vore:** select tokens, no check. Either way the prey token is hidden from everyone else, and the swallow/escape/release/digestion messages, check cards and sounds go only to the GM, the predator's owner and the prey's owner. Releasing the prey reveals them again.
@@ -52,7 +52,7 @@ Two extra Vore Controls buttons. **Secret Vore check:** select the predator, tar
 ## Screen art, defaults and the HUD
 - Each Vore option can overlay stomach-interior art on the prey's screen: tick "Stomach interior art" for the built-in image (`images/stomach_interior.webp`, generated for this module) or pick your own image, with an opacity slider.
 - World settings set the default prey and digested token images and the default loop, swallow, escape and digestion sounds for Vore option 1. They show in the Vore tab and fill empty slots on every token, including existing ones; saving a token never copies them in. They fill any empty slot, including on existing tokens.
-- The Token HUD buttons are off by default; turn on "Show Vore buttons on the Token HUD" to bring them back. Everything is in Vore Controls.
+- There are no Token HUD buttons any more. Players use their Vore features; the GM has every tool in Vore Controls.
 - Timers take hours, minutes and seconds, and can skip death saves. All chosen per swallow (see below).
 
 ## Presets, copy/paste and safety tools
@@ -85,7 +85,7 @@ In-character messages spoken by a vored token are muffled for everyone but the p
 - Prey can strike from inside: "Strike from within" button; damage to the predator during a prey's turn (or within 2 minutes of pressing it) counts toward a breakout threshold, then the predator makes a Constitution save or releases everyone.
 
 ## Roll prompts
-Each participant's owner gets a private dialog (Athletics/Acrobatics, Normal/Advantage/Disadvantage). Prey owners can also trigger an Escape check from the Token HUD; predator owners get Churn and Release buttons.
+Each participant's owner gets a private dialog (Athletics/Acrobatics, Normal/Advantage/Disadvantage). Prey owners can also use the Vore - Struggle feature; predator owners get Vore - Churn and Vore - Release.
 
 ## Notes
 - Config resolves as: defaults, then the actor's prototype token Vore tab, then any per-token overrides.
@@ -116,4 +116,24 @@ The swallow dialog also asks whether digestion damages the prey or heals them. H
 The world setting "Muffled chat range" (default 30, in scene units, 0 = no limit) limits how far a vored token's muffled voice carries. Players without a token that close see nothing. The GM, the speaker, their predator and their bellymates always hear it.
 
 ## The Vore tab
-The Vore tab shows one panel at a time: pick Option 1, 2 or 3 with the buttons at the top, or General for the per-actor settings (sound distance, muffling, Stomach AC/HP, the Vore Actions feature and whole-tab copy/paste). Each option has Basics (open), Look, Sounds, Inside descriptions, Digestion stages and Advanced (extra messages, position/size, overlay image, distortion).
+The Vore tab opens on General and shows one panel at a time: General (sound and chat, force-feed text, Stomach AC/HP, copy/paste/presets, the Vore features button) has its own button, and below the "Vore Options" heading are the option buttons, with + to add another Vore option (up to six, one per type). General holds the per-actor settings (sound distance, muffling, Stomach AC/HP, force-feed text, the Vore features button and whole-tab copy/paste). Each option has a Type (Oral, Anal, Breast, Cock, Unbirth or Tail) and Basics (open), Look, Sounds, Inside descriptions, Digestion stages and Advanced. New characters start with one option.
+
+## Interface cleanup (v0.16)
+- **One swallow dialog:** the Vore type, Damage/Healing and Per-turn/Timer choices are now one dialog (also used for Feed and the GM Vore tools). Timer fields only appear when Timer is picked. The chat card has a single "Choose how to swallow" button.
+- **Vore Controls:** the GM has every tool. Players only see the group while one applies (Panic release when digested, Strike and Whisper when held or holding), because everything else is on their Vore features.
+- **Vore status panel:** a small panel (per-player setting, collapsible) shows who holds you, the digestion mode and timer, your HP, and the actions that apply, or for predators the prey they hold with Churn/Release/Endo.
+- **Settings are grouped** under headings: Who can do what, Digestion damage and healing, Rules, Chat and display, and Defaults for Vore option 1.
+- **Quieter chat:** system lines use a lighter style and finished cards fold down to one line (click to expand).
+- **Vore tab:** hints are now hover tooltips (the ? icons), stage effects use an override tick box ("Change this at this stage"), and renaming an option updates its button immediately.
+- **Liquid sway** is now a light GPU transform animation instead of a heavy per-pixel filter, so it no longer hurts the framerate. Reduced-motion browsers skip it.
+
+## Version 0.17 changes
+- **Hiding prey tokens:** Secret Vore no longer hides the prey's token unless you tick "Hide prey token" in the swallow dialog (off by default). A predator with Hammerspace Stomach, Compression Belly, Stomach of Holding or Smuggler Within gets the box ticked automatically. GM tools can always hide. Hidden prey make no loop, swallow or digestion sounds until they are revealed.
+- **Vore status panel:** now called "Vore Status", draggable by its title (double-click to reset), and starts away from the player list.
+- **Settings:** dice, level-step and heal-amount settings are gone (the defaults above apply), and Digestion healing is a plain on/off.
+- **Force-feed text:** written by the prey, per the predator's Vore type, in the General panel of their own Vore tab.
+- **Digestion stages:** compact, with color pickers and sliders. Anything you leave the same as the option is saved as unchanged.
+- The first tool in Vore Controls is now "Select Token" and supports drag/box selecting like Foundry's own select tool.
+
+## Sound fading (v0.17.4)
+Looping Vore sounds now fade smoothly with distance from the predator while anyone is moving, like an ambient sound: the volume follows the live position of the predator and of the listener's tokens (or the GM's view center) many times a second, with an ease-in/out curve, instead of jumping each time a token finishes moving. "When a predator is downed" now defaults to "Ask the GM" and "Auto-roll NPC" is off by default.

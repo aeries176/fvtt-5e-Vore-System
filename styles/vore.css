@@ -125,3 +125,84 @@
 .vore-config .vore-panel[hidden] { display: none; }
 .vore-config .vore-panel-title { margin: 0 0 2px; font-weight: bold; opacity: 0.8; }
 .vore-config .vore-section .vore-section { margin-left: 4px; }
+
+/* Lightweight "liquid" sway: transform-only, so it runs on the GPU compositor. */
+#board.vore-wobble {
+  animation: vore-wobble 9s ease-in-out infinite;
+  will-change: transform;
+  transform-origin: 50% 50%;
+}
+@keyframes vore-wobble {
+  0%, 100% { transform: translate(0, 0) scale(1) rotate(0deg); }
+  25% { transform: translate(calc(var(--vore-amp, 1) * 0.3%), calc(var(--vore-amp, 1) * -0.25%)) scale(calc(1 + var(--vore-amp, 1) * 0.006)) rotate(calc(var(--vore-amp, 1) * 0.15deg)); }
+  50% { transform: translate(calc(var(--vore-amp, 1) * -0.25%), calc(var(--vore-amp, 1) * 0.3%)) scale(calc(1 + var(--vore-amp, 1) * 0.01)) rotate(calc(var(--vore-amp, 1) * -0.12deg)); }
+  75% { transform: translate(calc(var(--vore-amp, 1) * 0.2%), calc(var(--vore-amp, 1) * 0.15%)) scale(calc(1 + var(--vore-amp, 1) * 0.004)) rotate(calc(var(--vore-amp, 1) * 0.1deg)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #board.vore-wobble { animation: none; }
+}
+
+/* Quieter chat: system notices and finished cards take less room. */
+.chat-message.vore-notice {
+  font-size: 0.92em;
+  opacity: 0.9;
+  padding: 3px 8px;
+}
+.chat-message.vore-notice .message-header { display: none; }
+.chat-message.vore-notice .message-content p { margin: 0; }
+.vore-card.resolved { cursor: pointer; }
+.vore-card.resolved:not(.open) > *:not(h3):not(.vore-outcome) { display: none; }
+.vore-card.resolved:not(.open) h3 { font-size: 0.95em; margin: 0; display: inline; }
+.vore-card.resolved:not(.open) h3::after { content: " \2014 "; }
+.vore-card.resolved:not(.open) .vore-outcome { display: inline; margin: 0; }
+
+/* Vore status panel */
+#vore-status-panel {
+  position: fixed;
+  left: 90px;
+  top: 150px;
+  width: 250px;
+  z-index: 60;
+  background: var(--color-cool-5, rgba(20, 20, 24, 0.92));
+  color: var(--color-light-1, #eee);
+  border: 1px solid var(--color-border-dark, #444);
+  border-radius: 6px;
+  font-size: var(--font-size-13, 13px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+#vore-status-panel .vsp-head { cursor: grab; user-select: none; touch-action: none; padding: 5px 9px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
+#vore-status-panel .vsp-body { padding: 2px 9px 8px; max-height: 40vh; overflow-y: auto; }
+#vore-status-panel .vsp-row { padding: 5px 0; border-top: 1px solid rgba(255, 255, 255, 0.12); }
+#vore-status-panel .vsp-sub { font-size: 0.9em; opacity: 0.8; }
+#vore-status-panel .vsp-bar { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.15); margin: 4px 0 2px; overflow: hidden; }
+#vore-status-panel .vsp-bar span { display: block; height: 100%; background: var(--color-warm-2, #c9593f); }
+#vore-status-panel .vsp-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+#vore-status-panel .vsp-actions button { width: auto; flex: 0 0 auto; line-height: 1.5; padding: 0 8px; }
+
+/* Grouped module settings */
+.vore-settings-heading {
+  margin: 14px 0 4px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--color-border-light-tertiary, #999);
+}
+
+/* Vore tab: help icons and stage overrides */
+.vore-config .vore-help { opacity: 0.6; margin-left: 4px; cursor: help; font-size: 0.9em; }
+.vore-config .vore-ov-row > label { display: flex; align-items: center; gap: 6px; flex: 1 1 100%; }
+.vore-config .vore-ov-row { flex-wrap: wrap; }
+.vore-config .vore-ov-row .form-fields[hidden] { display: none; }
+#vore-status-panel .vsp-head [data-vsp-toggle] { cursor: pointer; padding: 2px 4px; }
+
+/* Condensed digestion stages */
+.vore-config .vore-stage { margin: 4px 0; padding: 4px 8px 6px; border: 1px solid var(--color-border-light-tertiary, #999); border-radius: 4px; }
+.vore-config .vs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
+.vore-config .vs-cell { display: flex; flex-direction: column; gap: 1px; font-size: 0.9em; }
+.vore-config .vs-cell input[type="color"] { width: 100%; height: 1.8em; padding: 0 2px; }
+.vore-config .vs-boxes { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; }
+.vore-config .vs-box { display: flex; align-items: center; gap: 4px; }
+.vore-config .vore-plus { padding: 0 10px; }
+.vore-config .vore-pill[hidden], .vore-config .vore-plus[hidden] { display: none; }
+.vore-config .vore-remove { width: auto; line-height: 1.4; padding: 0 8px; margin-left: 8px; font-weight: normal; }
+
+.vore-config .vore-pills-title { margin: 8px 0 2px; font-weight: bold; opacity: 0.75; text-transform: uppercase; font-size: 0.8em; letter-spacing: 0.06em; }
+.vore-config .vore-panel[data-vore-panel="general"] .form-group { margin: 3px 0; }

@@ -55,25 +55,6 @@ function hexToRgba(hex, a) {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
 
-function ensureLiquidFilter(strength) {
-  let svg = document.getElementById("vore-fx-svg");
-  if (!svg) {
-    svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.id = "vore-fx-svg";
-    svg.setAttribute("width", "0");
-    svg.setAttribute("height", "0");
-    svg.style.position = "absolute";
-    svg.innerHTML = `<filter id="vore-liquid" x="-5%" y="-5%" width="110%" height="110%">
-      <feTurbulence type="fractalNoise" baseFrequency="0.008 0.012" numOctaves="2" seed="3" result="noise">
-        <animate attributeName="baseFrequency" dur="9s" values="0.008 0.012;0.014 0.008;0.008 0.012" repeatCount="indefinite"/>
-      </feTurbulence>
-      <feDisplacementMap in="SourceGraphic" in2="noise" scale="24" xChannelSelector="R" yChannelSelector="G"/>
-    </filter>`;
-    document.body.append(svg);
-  }
-  svg.querySelector("feDisplacementMap").setAttribute("scale", String(8 + strength * 60));
-}
-
 /** Apply the prey's screen effects. Pass null to clear everything. */
 function applyScreenFx(slot) {
   const board = document.getElementById("board");
@@ -81,7 +62,10 @@ function applyScreenFx(slot) {
     overlay?.remove();
     overlay = null;
     setArt(null);
-    if (board) board.style.filter = "";
+    if (board) {
+      board.style.filter = "";
+      board.classList.remove("vore-wobble");
+    }
     return;
   }
   // Optional stomach-interior art (built in, or your own image) with its own opacity.
@@ -108,19 +92,73 @@ function applyScreenFx(slot) {
   // Non-vignette effects are applied to the game canvas itself (never the UI).
   const distortion = Number(slot.fxDistortion) || 0;
   const filters = [];
-  if (slot.fxLiquid) {
-    ensureLiquidFilter(distortion);
-    filters.push("url(#vore-liquid)");
-  }
+  // "Liquid" is a slow GPU-composited sway (a transform animation) rather than a per-pixel filter, so it costs almost nothing.
   if (slot.fxBlur) filters.push(`blur(${(distortion * 4).toFixed(1)}px)`);
-  if (board) board.style.filter = filters.join(" ");
+  if (board) {
+    board.style.filter = filters.join(" ");
+    board.classList.toggle("vore-wobble", !!slot.fxLiquid);
+    board.style.setProperty("--vore-amp", String(0.4 + distortion * 1.2));
+  }
 }
 
 /* -------------------------------------------- */
 /*  Audio: one sound per Vore option, fades with distance */
 /* -------------------------------------------- */
 
-const sounds = new Map(); // key -> { src, sound, dead }
+const sounds = new Map(); // key -> { src, sound, dead, base, range, predId, cur }
+
+/** Where a token is on screen right now, including mid-movement while it is still animating. */
+function liveCenter(doc) {
+  const o = doc?.object;
+  if (o?.position && o.w) return { x: o.position.x + o.w / 2, y: o.position.y + o.h / 2 };
+  return centerOf(doc);
+}
+
+/** 0..1 loudness for a looping sound, from the live distance between its predator and the listener. */
+function levelFor(entry) {
+  const scene = canvas?.scene;
+  const pred = scene?.tokens.get(entry.predId);
+  if (!pred) return 0;
+  const origin = liveCenter(pred);
+  const mine = scene.tokens.filter((t) => !game.user.isGM && ownsToken(t));
+  let dist;
+  if (mine.length) dist = Math.min(...mine.map((t) => measure(origin, liveCenter(t))));
+  else {
+    const pivot = canvas.stage?.pivot;
+    dist = pivot ? measure(origin, { x: pivot.x, y: pivot.y }) : 0;
+  }
+  const x = Math.max(0, 1 - dist / Math.max(1, entry.range));
+  return x * x * (3 - 2 * x); // smoothstep: eases in and out like an ambient sound
+}
+
+const masterVolume = () => game.settings.get("core", "globalInterfaceVolume") ?? 1;
+
+/** Move every loop's volume toward its target a little each frame, so it fades smoothly while anyone moves. */
+let tickFn = null;
+let lastTick = 0;
+function tickSounds() {
+  const now = performance.now();
+  if (now - lastTick < 40) return; // about 25 updates a second is plenty for a smooth fade
+  lastTick = now;
+  const master = masterVolume();
+  for (const entry of sounds.values()) {
+    if (!entry.sound) continue;
+    const target = Math.max(0, Math.min(1, entry.base * levelFor(entry) * master));
+    entry.cur = Math.abs(target - entry.cur) < 0.004 ? target : entry.cur + (target - entry.cur) * 0.35;
+    entry.sound.volume = entry.cur;
+  }
+}
+function ensureTicker(on) {
+  const ticker = canvas?.app?.ticker;
+  if (!ticker) return;
+  if (on && !tickFn) {
+    tickFn = tickSounds;
+    ticker.add(tickFn);
+  } else if (!on && tickFn) {
+    ticker.remove(tickFn);
+    tickFn = null;
+  }
+}
 
 async function reconcileSounds(wanted) {
   for (const [key, entry] of sounds) {
@@ -130,23 +168,23 @@ async function reconcileSounds(wanted) {
       sounds.delete(key);
     }
   }
-  const master = game.settings.get("core", "globalInterfaceVolume") ?? 1;
   for (const [key, w] of wanted) {
-    const vol = Math.max(0, Math.min(1, w.volume * master));
     const existing = sounds.get(key);
     if (existing) {
-      if (existing.sound) existing.sound.volume = vol;
+      Object.assign(existing, { base: w.base, range: w.range, predId: w.predId });
       continue;
     }
-    const entry = { src: w.src, sound: null, dead: false };
+    const entry = { src: w.src, sound: null, dead: false, base: w.base, range: w.range, predId: w.predId, cur: 0 };
+    entry.cur = Math.max(0, Math.min(1, entry.base * levelFor(entry) * masterVolume()));
     sounds.set(key, entry);
-    foundry.audio.AudioHelper.play({ src: w.src, volume: vol, loop: true, autoplay: true }, false)
-      .then((s) => {
-        if (entry.dead) s?.stop();
-        else entry.sound = s;
+    foundry.audio.AudioHelper.play({ src: w.src, volume: entry.cur, loop: true, autoplay: true }, false)
+      .then((snd) => {
+        if (entry.dead) snd?.stop();
+        else entry.sound = snd;
       })
       .catch((e) => console.warn("vore-system | audio failed", e));
   }
+  ensureTicker(sounds.size > 0);
 }
 
 const centerOf = (t) => {
@@ -193,15 +231,14 @@ export function syncFX() {
     // Digestion stages can override the sound and screen effects as the prey's HP falls.
     const slot = effectiveSlot(getSlot(cfg, st.slot), stageOf(prey.actor));
     if (mineIds.has(prey.id) && !fxSlot) fxSlot = slot;
+    if (prey.hidden) continue; // hidden prey make no sound until they are revealed
     groups.set(`${pred.id}:${st.slot}:${slot.sound || slot.externalSound || slot.internalSound || ""}`, { pred, cfg, slot });
   }
 
   for (const [key, g] of groups) {
     const src = g.slot.sound || g.slot.externalSound || g.slot.internalSound;
     if (!src) continue;
-    const range = Math.max(1, Number(g.cfg.soundRange) || 30);
-    const level = Math.max(0, 1 - listenerDistance(g.pred, mine) / range);
-    wanted.set(key, { src, volume: (Number(g.slot.soundVolume) || 0.6) * level });
+    wanted.set(key, { src, base: Number(g.slot.soundVolume) || 0.6, range: Math.max(1, Number(g.cfg.soundRange) || 30), predId: g.pred.id });
   }
   applyScreenFx(fxSlot);
   return reconcileSounds(wanted);
@@ -214,7 +251,8 @@ async function playOneShot({ sceneId, predId, src, volume }) {
   if (!pred || !src) return;
   const mine = canvas.scene.tokens.filter((t) => !game.user.isGM && ownsToken(t));
   const range = Math.max(1, Number(getConfig(pred).soundRange) || 30);
-  const level = Math.max(0, 1 - listenerDistance(pred, mine) / range);
+  const x = Math.max(0, 1 - listenerDistance(pred, mine) / range);
+  const level = x * x * (3 - 2 * x);
   const master = game.settings.get("core", "globalInterfaceVolume") ?? 1;
   const vol = Math.min(1, (Number(volume) || 0.6) * level * master);
   if (vol <= 0.01) return;

@@ -5,6 +5,8 @@ import { registerCardHandlers } from "./cards.js";
 import { registerCombatHooks } from "./combat.js";
 import { registerUIHooks, voreAction, churnAction, releaseAction, escapeAction, feedAction, endoAction, panicAction, manualVore, strikeAction } from "./ui.js";
 import { ensureMacroPack } from "./macros.js";
+import { registerPanel } from "./panel.js";
+import { registerSettingsUI } from "./settingsui.js";
 import { registerExtras } from "./extras.js";
 import { registerInside } from "./inside.js";
 import { registerStrike } from "./strike.js";
@@ -12,7 +14,7 @@ import { registerTimed } from "./timed.js";
 import { registerStomach } from "./stomach.js";
 import { registerSafety, resetScene } from "./safety.js";
 import { registerPresets } from "./presets.js";
-import { addDevourFeature, addVoreActions, ensurePack, registerDevourHooks } from "./devour.js";
+import { addDevourFeature, addVoreActions, ensurePack, registerDevourHooks, registerFeatureHooks, ensureActorFeatures } from "./devour.js";
 import { registerAttachHooks, setSmoothAttach } from "./attach.js";
 import { patchVision, registerFXHooks, registerMuffleHooks, syncFX } from "./fx.js";
 
@@ -90,87 +92,6 @@ Hooks.once("init", () => {
     type: Boolean,
     default: false
   });
-  game.settings.register(MODULE_ID, "healMode", {
-    name: "VORE.Settings.HealMode.Name",
-    hint: "VORE.Settings.HealMode.Hint",
-    scope: "world",
-    config: true,
-    type: String,
-    choices: { fraction: "Fraction of the prey's max HP", dice: "Dice roll" },
-    default: "fraction"
-  });
-  game.settings.register(MODULE_ID, "healDice", {
-    name: "VORE.Settings.HealDice.Name",
-    hint: "VORE.Settings.HealDice.Hint",
-    scope: "world",
-    config: true,
-    type: Number,
-    default: 2
-  });
-  game.settings.register(MODULE_ID, "healDieSize", {
-    name: "VORE.Settings.HealSize.Name",
-    hint: "VORE.Settings.HealSize.Hint",
-    scope: "world",
-    config: true,
-    type: Number,
-    default: 8
-  });
-  game.settings.register(MODULE_ID, "healDivisor", {
-    name: "VORE.Settings.HealDiv.Name",
-    hint: "VORE.Settings.HealDiv.Hint",
-    scope: "world",
-    config: true,
-    type: Number,
-    default: 4
-  });
-  game.settings.register(MODULE_ID, "tempDivisor", {
-    name: "VORE.Settings.TempDiv.Name",
-    hint: "VORE.Settings.TempDiv.Hint",
-    scope: "world",
-    config: true,
-    type: Number,
-    default: 8
-  });
-  game.settings.register(MODULE_ID, "turnDice", {
-    name: "VORE.Settings.TurnDice.Name",
-    hint: "VORE.Settings.TurnDice.Hint",
-    scope: "world",
-    config: true,
-    type: Number,
-    default: 1
-  });
-  game.settings.register(MODULE_ID, "turnDieSize", {
-    name: "VORE.Settings.TurnSize.Name",
-    hint: "VORE.Settings.TurnSize.Hint",
-    scope: "world",
-    config: true,
-    type: Number,
-    default: 6
-  });
-  game.settings.register(MODULE_ID, "churnDice", {
-    name: "VORE.Settings.ChurnDice.Name",
-    hint: "VORE.Settings.ChurnDice.Hint",
-    scope: "world",
-    config: true,
-    type: Number,
-    default: 2
-  });
-  game.settings.register(MODULE_ID, "churnDieSize", {
-    name: "VORE.Settings.ChurnSize.Name",
-    hint: "VORE.Settings.ChurnSize.Hint",
-    scope: "world",
-    config: true,
-    type: Number,
-    default: 6
-  });
-  game.settings.register(MODULE_ID, "diceEvery", {
-    name: "VORE.Settings.DiceEvery.Name",
-    hint: "VORE.Settings.DiceEvery.Hint",
-    scope: "world",
-    config: true,
-    type: Number,
-    default: 5
-  });
 
   game.settings.register(MODULE_ID, "allowEndo", {
     name: "VORE.Settings.Endo.Name",
@@ -207,6 +128,14 @@ Hooks.once("init", () => {
     type: Number,
     default: 30
   });
+  game.settings.register(MODULE_ID, "autoAddFeatures", {
+    name: "VORE.Settings.AutoFeatures.Name",
+    hint: "VORE.Settings.AutoFeatures.Hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: true
+  });
   game.settings.register(MODULE_ID, "voreLog", {
     name: "VORE.Settings.Log.Name",
     hint: "VORE.Settings.Log.Hint",
@@ -216,14 +145,6 @@ Hooks.once("init", () => {
     default: true
   });
   game.settings.register(MODULE_ID, "macroPackVersion", { scope: "world", config: false, type: Number, default: 0 });
-  game.settings.register(MODULE_ID, "hudButtons", {
-    name: "VORE.Settings.Hud.Name",
-    hint: "VORE.Settings.Hud.Hint",
-    scope: "world",
-    config: true,
-    type: Boolean,
-    default: false
-  });
   game.settings.register(MODULE_ID, "defaultPreyImg1", {
     name: "VORE.Settings.DefPrey1.Name",
     hint: "VORE.Settings.DefPrey1.Hint",
@@ -287,7 +208,7 @@ Hooks.once("init", () => {
     config: true,
     type: String,
     choices: { release: "Release everyone inside", ask: "Ask the GM", stuck: "Leave them held" },
-    default: "release"
+    default: "ask"
   });
   game.settings.register(MODULE_ID, "presets", { scope: "world", config: false, type: Object, default: {} });
 
@@ -309,6 +230,9 @@ Hooks.once("init", () => {
   registerExtras();
   registerMuffleHooks();
   registerInside();
+  registerPanel();
+  registerFeatureHooks();
+  registerSettingsUI();
 });
 
 // The dnd5e system may rebuild CONFIG.statusEffects after init, so make sure ours survives.
@@ -330,5 +254,6 @@ Hooks.once("ready", () => {
   if (game.users.activeGM?.id === game.user.id) {
     ensurePack();
     ensureMacroPack();
+    ensureActorFeatures();
   }
 });

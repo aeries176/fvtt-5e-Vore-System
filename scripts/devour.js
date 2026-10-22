@@ -1,60 +1,69 @@
 import { MODULE_ID } from "./const.js";
 import { FEATS, SUBCLASSES, FOLDERS, RETIRED, featData, featDescription, subclassData, subclassDescription } from "./feats.js";
 
-export const PACK_VERSION = 5; // bump when new compendium entries are added
+export const PACK_VERSION = 7; // bump when new compendium entries are added
 
-export const FEATURE_NAME = "Vore Actions";
-const ACTIVITIES = ["Devour", "Feed", "Endo", "Churn", "Release prey", "Struggle"];
+export const FEATURE_NAME = "Vore Actions"; // the old single feature; replaced by the six below
+export const FEATURES_VERSION = 1; // bump to add or change the actor features below
 
-const DESCRIPTION = `<p>Every Vore action in one feature. Each button runs the module's version of the action; most use your selected token and your current targets.</p>
-<ul>
-<li><strong>Devour</strong> &mdash; target a creature and start the opposed Athletics/Acrobatics check to swallow them.</li>
-<li><strong>Feed</strong> &mdash; target a predator and offer yourself. They may allow it or resist (then you must win a Vore check).</li>
-<li><strong>Endo</strong> &mdash; toggle: prey you hold takes no digestion damage.</li>
-<li><strong>Churn</strong> &mdash; spend an action to deal extra damage to prey you're holding (ends Endo).</li>
-<li><strong>Release prey</strong> &mdash; offer to let those you're holding go. They may allow it or resist.</li>
-<li><strong>Struggle</strong> &mdash; while swallowed, make an opposed check to break free.</li>
-</ul>`;
+const FEATURES = [
+  { key: "devour", name: "Vore - Devour", activity: "Devour", html: "<p>Target a creature and start the opposed Athletics/Acrobatics Vore check to swallow them. The predator must win; ties go to the prey.</p>" },
+  { key: "feed", name: "Vore - Feed", activity: "Feed", html: "<p>Target a predator and offer yourself to them. They may allow it or resist; if they resist, you must win a Vore check, and then you choose how.</p>" },
+  { key: "struggle", name: "Vore - Struggle", activity: "Struggle", html: "<p>While you are swallowed, make an opposed check against your predator to break free.</p>" },
+  { key: "churn", name: "Vore - Churn", activity: "Churn", html: "<p>Spend an action to churn the prey you hold, dealing extra digestion damage (or healing, if you chose healing). Ends Endo.</p>" },
+  { key: "release", name: "Vore - Release", activity: "Release", html: "<p>Offer to let the prey you hold go. They may allow it or resist; if they resist, you must win a check to force them out.</p>" },
+  { key: "endo", name: "Vore - Endo", activity: "Endo", html: "<p>Toggle Endo: while it is on, the prey you hold takes no digestion damage and makes no death saves.</p>" }
+];
 
 const activityData = (name) => ({ type: "utility", name, activation: { type: "action", value: 1 } });
 
-/** Item data for the Vore Actions feature, with its activities built in (used by the compendium and the sheet button). */
-export function voreActionsData() {
-  const activities = {};
-  for (const name of ACTIVITIES) {
-    const _id = foundry.utils.randomID();
-    activities[_id] = { _id, ...activityData(name) };
-  }
+/** Item data for one Vore action feature, with its single activity built in. */
+export function voreFeatureData(f) {
+  const _id = foundry.utils.randomID();
   return {
-    name: FEATURE_NAME,
+    name: f.name,
     type: "feat",
     img: `modules/${MODULE_ID}/icons/vored.svg`,
-    system: { description: { value: DESCRIPTION }, activities },
-    flags: { [MODULE_ID]: { devour: true } }
+    system: { description: { value: f.html }, activities: { [_id]: { _id, ...activityData(f.activity) } } },
+    flags: { [MODULE_ID]: { voreAction: f.key } }
   };
 }
+export const voreFeaturesData = () => FEATURES.map(voreFeatureData);
 
-/** Add the "Vore Actions" feature to an actor. An older "Devour" feature is renamed and topped up instead. */
-export async function addVoreActions(actor) {
+/** Give an actor the six Vore action features (and remove the old combined "Vore Actions" one). */
+export async function addVoreActions(actor, { quiet = false } = {}) {
   if (!actor) return ui.notifications.warn("This token has no actor to add a feature to.");
-  const existing = actor.items.find((i) => i.getFlag(MODULE_ID, "devour"));
   try {
-    if (existing) {
-      await existing.update({ name: FEATURE_NAME, "system.description.value": DESCRIPTION });
-      const have = new Set([...existing.system.activities].map((a) => String(a.name).toLowerCase()));
-      for (const name of ACTIVITIES.filter((n) => !have.has(n.toLowerCase()))) {
-        await existing.createActivity("utility", activityData(name), { renderSheet: false });
-      }
-      return ui.notifications.info(`${actor.name}'s Vore Actions are up to date.`);
-    }
-    await actor.createEmbeddedDocuments("Item", [voreActionsData()]);
-    ui.notifications.info(`Added Vore Actions to ${actor.name}.`);
+    const old = actor.items.filter((i) => i.getFlag(MODULE_ID, "devour") && !i.getFlag(MODULE_ID, "voreAction")).map((i) => i.id);
+    if (old.length) await actor.deleteEmbeddedDocuments("Item", old);
+    const have = new Set(actor.items.map((i) => i.getFlag(MODULE_ID, "voreAction")).filter(Boolean));
+    const missing = FEATURES.filter((f) => !have.has(f.key)).map(voreFeatureData);
+    if (missing.length) await actor.createEmbeddedDocuments("Item", missing);
+    await actor.setFlag(MODULE_ID, "featuresVersion", FEATURES_VERSION);
+    if (!quiet) ui.notifications.info(`${actor.name} has the Vore action features.`);
   } catch (e) {
-    console.warn("vore-system | could not add Vore Actions", e);
-    ui.notifications.warn("Couldn't add Vore Actions. Check the console, or use the Token HUD buttons instead.");
+    console.warn("vore-system | could not add Vore actions", e);
+    if (!quiet) ui.notifications.warn("Couldn't add the Vore features. Check the console.");
   }
 }
 export const addDevourFeature = addVoreActions; // old API name
+
+/** Every player character gets the Vore action features once (a character you remove them from isn't re-added). */
+export async function ensureActorFeatures() {
+  if (!game.user.isGM || game.users.activeGM?.id !== game.user.id) return;
+  if (!game.settings.get(MODULE_ID, "autoAddFeatures")) return;
+  for (const actor of game.actors) {
+    if (actor.type !== "character" || (Number(actor.getFlag(MODULE_ID, "featuresVersion")) || 0) >= FEATURES_VERSION) continue;
+    await addVoreActions(actor, { quiet: true });
+  }
+}
+
+export function registerFeatureHooks() {
+  Hooks.on("createActor", (actor, options, userId) => {
+    if (userId !== game.user.id || actor.type !== "character" || !game.settings.get(MODULE_ID, "autoAddFeatures")) return;
+    addVoreActions(actor, { quiet: true });
+  });
+}
 
 /** Create the editable "Vore System" Item compendium once and put Vore Actions in it. GM only. */
 export async function ensurePack({ force = false } = {}) {
@@ -75,7 +84,10 @@ export async function ensurePack({ force = false } = {}) {
     }
     const FolderCls = foundry.documents?.Folder ?? Folder;
     const folderIds = {};
-    for (const name of FOLDERS) {
+    // The folder for the six Vore features was first called "Vore Actions".
+    const renamed = pack.folders.find((f) => f.name === "Vore Actions");
+    if (renamed && !pack.folders.find((f) => f.name === "Character Features")) await renamed.update({ name: "Character Features" });
+    for (const name of ["Character Features", ...FOLDERS]) {
       const existing = pack.folders.find((f) => f.name === name);
       folderIds[name] = existing?.id ?? (await FolderCls.create({ name, type: "Item" }, { pack: pack.collection })).id;
     }
@@ -90,7 +102,10 @@ export async function ensurePack({ force = false } = {}) {
     }
 
     const toCreate = [];
-    if (!byName.has(FEATURE_NAME)) toCreate.push(voreActionsData());
+    // The old single "Vore Actions" feature is replaced by six separate ones.
+    const oldCombined = byName.get(FEATURE_NAME);
+    if (oldCombined?.getFlag(MODULE_ID, "devour") && !oldCombined.getFlag(MODULE_ID, "voreAction")) await oldCombined.delete();
+    for (const f of FEATURES) if (!byName.has(f.name)) toCreate.push({ ...voreFeatureData(f), folder: folderIds["Character Features"] });
     const entries = [
       ...FEATS.map((f) => ({ ...f, build: () => featData(f), describe: () => featDescription(f) })),
       ...SUBCLASSES.map((sc) => ({ ...sc, folder: "Subclasses", build: () => subclassData(sc), describe: () => subclassDescription(sc) }))
@@ -109,6 +124,7 @@ export async function ensurePack({ force = false } = {}) {
       if ((d.getFlag(MODULE_ID, "v") ?? 1) < (feat.v ?? 1)) {
         update["system.description.value"] = feat.describe();
         update[`flags.${MODULE_ID}.v`] = feat.v;
+        update[`flags.${MODULE_ID}.hidesPrey`] = !!feat.hidesPrey;
       }
       if (!d.folder) update.folder = folder;
       if (Object.keys(update).length) await d.update(update);
@@ -120,36 +136,20 @@ export async function ensurePack({ force = false } = {}) {
   }
 }
 
-/** Make the Devour feature's buttons run the module's actions instead of posting a normal item card. */
+/** Make the Vore action features run the module's actions instead of posting a normal item card. */
 export function registerDevourHooks({ voreAction, churnAction, releaseAction, escapeAction, feedAction, endoAction }) {
   let last = 0;
+  const actions = { devour: voreAction, feed: feedAction, struggle: escapeAction, churn: churnAction, release: releaseAction, endo: endoAction };
 
-  const run = (item, activityName) => {
-    const actor = item.actor;
+  Hooks.on("dnd5e.preUseActivity", (activity) => {
+    const key = activity?.item?.getFlag?.(MODULE_ID, "voreAction");
+    const run = actions[key];
+    if (!run) return;
+    const actor = activity.item.actor;
     const token =
       canvas.tokens?.controlled.find((t) => t.actor?.id === actor?.id)?.document ?? actor?.getActiveTokens(true, true)[0];
-    if (!token) {
-      ui.notifications.warn("Place or select this character's token first.");
-      return;
-    }
-    const name = String(activityName ?? "").toLowerCase();
-    if (name.startsWith("feed")) feedAction(token);
-    else if (name.startsWith("endo")) endoAction(token);
-    else if (name.startsWith("churn")) churnAction(token);
-    else if (name.startsWith("release")) releaseAction(token);
-    else if (name.startsWith("struggle")) escapeAction(token);
-    else voreAction(token);
-  };
-
-  const KNOWN = ["devour", "feed", "endo", "churn", "release", "struggle"];
-  // Only the individual buttons run module actions. Using the feature itself lets dnd5e show its own
-  // choice of activities, so nothing starts a Vore check by accident.
-  Hooks.on("dnd5e.preUseActivity", (activity) => {
-    const item = activity?.item;
-    if (!item?.getFlag?.(MODULE_ID, "devour")) return;
-    const name = String(activity?.name ?? "").toLowerCase();
-    if (!KNOWN.some((k) => name.startsWith(k))) return;
-    if (Date.now() - last > 500) run(item, name);
+    if (!token) ui.notifications.warn("Place or select this character's token first.");
+    else if (Date.now() - last > 500) run(token);
     last = Date.now();
     return false;
   });

@@ -11,7 +11,10 @@ const { DialogV2 } = foundry.applications.api;
 export async function describeInside(prey, pred, slotIndex, key) {
   if (!prey?.actor || !pred) return;
   const slot = getSlot(getConfig(pred), slotIndex);
-  const lines = String(slot?.[key] ?? "")
+  // Older saves used 75/50/25% thresholds; they still apply to the matching stage.
+  const LEGACY = { descHp66: ["descHp75"], descHp33: ["descHp50", "descHp25"] };
+  const text0 = [key, ...(LEGACY[key] ?? [])].map((k) => slot?.[k]).find((v) => String(v ?? "").trim()) ?? "";
+  const lines = String(text0)
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean);

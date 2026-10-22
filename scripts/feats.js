@@ -185,12 +185,37 @@ export const FEATS = [
     )
   },
   {
+    name: "Hammerspace Stomach",
+    group: "Predator",
+    folder: "Predator Feats",
+    hidesPrey: true,
+    html: p(
+      "<em>Your stomach opens onto a space that is bigger than you are.</em>",
+      "Creatures you swallow are carried in that space instead of your body. While they are inside, their tokens are hidden from everyone but you, them and the GM, and nothing about your size or shape shows what you are holding.",
+      "You can hold up to twice as many creatures as normal before you start to slow down, and creatures inside you can't tell where in the space the others are unless you allow it."
+    )
+  },
+  {
+    name: "Compression Belly",
+    group: "Predator",
+    folder: "Predator Feats",
+    hidesPrey: true,
+    html: p(
+      "<em>Whatever you swallow folds down until it is hardly there.</em>",
+      "Creatures you swallow are compressed and carried invisibly: their tokens are hidden from everyone but you, them and the GM, and you do not look any larger for it.",
+      "A creature inside you is compressed to a tiny size. It has disadvantage on checks that rely on moving or reaching, but also has advantage on saving throws against being crushed or squeezed. You can release any creature you hold as a bonus action."
+    )
+  },
+  {
     name: "Stomach of Holding",
     group: "Predator",
     folder: "Predator Feats",
+    hidesPrey: true,
+    v: 2,
     html: p(
       "As an action, you can swallow an object you can hold. Objects swallowed with this feat are never digested, damaged or lost, no matter how long they stay inside you.",
-      "You can hold items totaling up to your Constitution score in pounds. As a bonus action, you can bring any held item back up into your hand. Creatures inside you can't reach these items unless you allow it."
+      "You can hold items totaling up to your Constitution score in pounds. As a bonus action, you can bring any held item back up into your hand. Creatures inside you can't reach these items unless you allow it.",
+      "Creatures you swallow are hidden along with them: their tokens vanish from the map for everyone but you, them and the GM."
     )
   },
   {
@@ -385,7 +410,7 @@ export function featData(feat) {
     type: "feat",
     img: `modules/${MODULE_ID}/icons/vored.svg`,
     system: { description: { value: featDescription(feat) }, type: { value: "feat" } },
-    flags: { [MODULE_ID]: { feat: true, group: feat.group, v: feat.v ?? 1 } }
+    flags: { [MODULE_ID]: { feat: true, group: feat.group, v: feat.v ?? 1, hidesPrey: !!feat.hidesPrey } }
   };
 }
 
@@ -443,10 +468,12 @@ export const SUBCLASSES = [
   {
     name: "Smuggler Within",
     classIdentifier: "rogue",
+    hidesPrey: true,
+    v: 2,
     html: p(
       "<em>Some thieves hide in barrels. You hide in friends.</em>",
       "<strong>Hidden Passenger (level 3).</strong> You can be held by a willing ally with no check. While you are held, you can see through the ally's eyes and hear what it hears. You can also use Cunning Action to get out as a bonus action, placed adjacent to the ally.",
-      "<strong>Concealed Delivery (level 3).</strong> You are completely invisible to creatures looking for you while held by an ally. They need an active search and a Perception check against your Stealth to find you.",
+      "<strong>Concealed Delivery (level 3).</strong> You are completely invisible to creatures looking for you while held by an ally. They need an active search and a Perception check against your Stealth to find you. Your token is hidden from everyone but you, your holder and the GM, and the module hides the tokens of creatures you swallow in the same way.",
       "<strong>Ambush From Within (level 9).</strong> When you leave an ally's stomach on your turn, you have advantage on attack rolls until the end of that turn, and the first attack you make deals your Sneak Attack damage as if you had advantage, whether or not you meet the condition.",
       "<strong>Gut Instinct (level 13).</strong> You always know where your holder is, and you can swap places with a willing creature you hold.",
       "<strong>Perfect Smuggle (level 17).</strong> A willing creature you are held by can carry up to three other willing creatures at once without any of them being noticed. They keep their gear and can't be seen."
@@ -506,6 +533,6 @@ export function subclassData(sc) {
       classIdentifier: sc.classIdentifier,
       description: { value: subclassDescription(sc) }
     },
-    flags: { [MODULE_ID]: { feat: true, subclass: true, endoOnly: !!sc.endoOnly, v: sc.v ?? 1 } }
+    flags: { [MODULE_ID]: { feat: true, subclass: true, endoOnly: !!sc.endoOnly, hidesPrey: !!sc.hidesPrey, v: sc.v ?? 1 } }
   };
 }

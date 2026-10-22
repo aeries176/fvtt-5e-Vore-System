@@ -1,6 +1,9 @@
 export const MODULE_ID = "vore-system";
 export const SOCKET = `module.${MODULE_ID}`;
 
+export const TYPES = ["Oral", "Anal", "Breast", "Cock", "Unbirth", "Tail"];
+export const MAX_SLOTS = TYPES.length;
+
 const blankStage = () => ({
   preyImg: "",
   sound: "",
@@ -17,7 +20,6 @@ const blankStage = () => ({
 const blankSlot = (label = "") => ({
   label,
   swallowMessage: "{predator} swallows {prey}.",
-  forceFedMessage: "{prey} forces themselves down {predator}'s throat!", // prey feeds themselves to a resisting predator
   forceReleaseMessage: "{predator} is forced to release {prey}!", // predator is forced to let go of resisting prey
   gearMode: "keep", // "keep" | "strip" (unequip while held) | "slime" (gear stays, prey is Slimed on release)
   digestedPlacement: "adjacent", // "adjacent" = leave the digested token beside the predator, "inside" = keep it on the predator
@@ -31,9 +33,8 @@ const blankSlot = (label = "") => ({
   // Private "inside" descriptions whispered to the prey's player. One line per variant; a random line is used.
   descSwallow: "",
   descRound: "",
-  descHp75: "",
-  descHp50: "",
-  descHp25: "",
+  descHp66: "", // stage 1
+  descHp33: "", // stage 2
   descDying: "",
   descDigested: "",
   preyImg: "",
@@ -67,5 +68,14 @@ export const DEFAULT_CONFIG = {
   soundRange: 30,
   stomachAC: "", // used when "Stomach rules" is on. Empty = 10 + the predator's CON modifier
   stomachHP: "", // empty = half the predator's max HP
-  slots: { 0: blankSlot("Oral"), 1: blankSlot(""), 2: blankSlot("") }
+  // What this character says when they force themselves into a predator, keyed by the predator's Vore type.
+  forceFed: {
+    Oral: "{prey} forces themselves down {predator}'s throat!",
+    Anal: "{prey} forces themselves into {predator}.",
+    Breast: "{prey} forces themselves into {predator}.",
+    Cock: "{prey} forces themselves into {predator}.",
+    Unbirth: "{prey} forces themselves into {predator}.",
+    Tail: "{prey} forces themselves into {predator}'s tail."
+  },
+  slots: { 0: blankSlot("Oral"), 1: blankSlot(""), 2: blankSlot(""), 3: blankSlot(""), 4: blankSlot(""), 5: blankSlot("") }
 };

@@ -1,4 +1,4 @@
-import { MODULE_ID, DEFAULT_CONFIG } from "./const.js";
+import { MODULE_ID, DEFAULT_CONFIG, MAX_SLOTS } from "./const.js";
 
 /** Read a module flag from a TokenDocument, a PrototypeToken, or an Actor (via its prototype token). */
 export function flagOf(doc, key) {
@@ -46,6 +46,45 @@ function applyImageDefaults(cfg) {
   }
 }
 
+const STAGE_FLAGS = ["fxVignette", "fxTint", "fxPulse", "fxLiquid", "fxBlur"];
+
+/**
+ * The Vore tab shows each stage's effects at their current values (color picker, sliders, checkboxes). Before saving,
+ * anything equal to what the stage would inherit anyway becomes "" (unchanged), and booleans become "on"/"off".
+ */
+export function normalizeStages(doc, cfg) {
+  if (!cfg?.slots) return cfg;
+  const full = foundry.utils.mergeObject(getConfig(doc, { defaults: false }), cfg, { inplace: false });
+  for (const [i, changes] of Object.entries(cfg.slots)) {
+    const base = full.slots?.[i];
+    if (!base || !changes) continue;
+    const prev = { ...base };
+    for (const n of [1, 2]) {
+      const st = changes[`stage${n}`];
+      if (st && typeof st === "object") {
+        for (const [key, v] of Object.entries(st)) {
+          if (v === "" || v === null || v === undefined) continue;
+          if (STAGE_FLAGS.includes(key)) {
+            const on = v === "on" ? true : v === "off" ? false : !!v;
+            st[key] = on === !!prev[key] ? "" : on ? "on" : "off";
+          } else if (key === "fxColor") {
+            st[key] = String(v).toLowerCase() === String(prev.fxColor ?? "").toLowerCase() ? "" : String(v);
+          } else if (key === "fxStrength" || key === "fxDistortion") {
+            st[key] = Number(v) === Number(prev[key]) ? "" : Number(v);
+          }
+        }
+      }
+      // What this stage now looks like becomes the baseline for the next one.
+      const now = { ...(full.slots[i][`stage${n}`] ?? {}), ...(st ?? {}) };
+      for (const [k, v] of Object.entries(now)) {
+        if (v === "" || v === null || v === undefined) continue;
+        prev[k] = v === "on" ? true : v === "off" ? false : /^fx(Strength|Distortion)$/.test(k) ? Number(v) : v;
+      }
+    }
+  }
+  return cfg;
+}
+
 /** Remove values that merely repeat a module default from a config being saved, so defaults stay defaults. */
 export function stripDefaultValues(cfg) {
   if (!cfg?.slots) return cfg;
@@ -59,7 +98,7 @@ export function stripDefaultValues(cfg) {
 
 /** Slots the GM has given a label to. Falls back to the first (default) slot. */
 export function activeSlots(cfg) {
-  const list = [0, 1, 2]
+  const list = Array.from({ length: MAX_SLOTS }, (_, i) => i)
     .map((i) => ({ index: i, ...cfg.slots[i] }))
     .filter((s) => s.label?.trim());
   return list.length ? list : [{ index: 0, ...cfg.slots[0], label: cfg.slots[0].label || "Default" }];
@@ -130,6 +169,11 @@ export function effectiveSlot(slot, stage) {
   }
   return out;
 }
+
+/** Feats that let a predator hide a stomach full of prey: swallowed tokens vanish from the map. */
+const HIDING_FEATS = new Set(["hammerspace stomach", "compression belly", "stomach of holding", "smuggler within"]);
+export const hidesPrey = (pred) =>
+  !!pred?.actor?.items?.some((i) => i.getFlag(MODULE_ID, "hidesPrey") || HIDING_FEATS.has(String(i.name).trim().toLowerCase()));
 
 /** Oath of the Matron and similar: a predator that can never harm what it holds. */
 export const isEndoOnly = (pred) => !!pred?.actor?.items?.some((i) => i.getFlag(MODULE_ID, "endoOnly"));

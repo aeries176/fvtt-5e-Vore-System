@@ -1,4 +1,6 @@
 /** The predator picks how digestion works each time they swallow: damage per turn, or a countdown timer. */
+import { hidesPrey } from "./util.js";
+
 const { DialogV2 } = foundry.applications.api;
 const KEY = "vore-system.lastDigest";
 
@@ -12,32 +14,33 @@ function last() {
   }
 }
 
-/** Form fields for the digestion choice (also embedded in the GM Vore dialog). */
+/** Form fields for the digestion choice (also embedded in other Vore dialogs). Timer fields only show for "Timer". */
 export function digestFields() {
   const d = last();
-  const sel = (v) => (d.mode === v ? "selected" : "");
+  const timed = d.mode === "timed";
+  const toggle = `onchange="const f=this.closest('form'); f.querySelectorAll('[data-timer]').forEach(e=>e.hidden=this.value!=='timed')"`;
   return `
   <div class="form-group"><label>Effect on prey</label><div class="form-fields">
     <select name="deffect">
       <option value="damage" ${d.effect === "heal" ? "" : "selected"}>Damage (digestion)</option>
-      <option value="heal" ${d.effect === "heal" ? "selected" : ""}>Healing (prey recover HP, nobody is digested)</option>
+      <option value="heal" ${d.effect === "heal" ? "selected" : ""}>Healing (prey recover, nobody is digested)</option>
     </select></div></div>
   <div class="form-group"><label>Timing</label><div class="form-fields">
-    <select name="dmode">
-      <option value="turn" ${sel("turn")}>Damage on each of the predator's turns</option>
-      <option value="timed" ${sel("timed")}>Timer (countdown)</option>
+    <select name="dmode" ${toggle}>
+      <option value="turn" ${timed ? "" : "selected"}>Each of the predator's turns</option>
+      <option value="timed" ${timed ? "selected" : ""}>Timer (countdown)</option>
     </select></div></div>
-  <div class="form-group"><label>Timer duration</label><div class="form-fields">
+  <div class="form-group" data-timer ${timed ? "" : "hidden"}><label>Timer duration</label><div class="form-fields">
     <input type="number" name="dh" value="${d.hours}" min="0" step="1" style="max-width:4.5rem"> h
     <input type="number" name="dm" value="${d.minutes}" min="0" step="1" style="max-width:4.5rem"> m
     <input type="number" name="ds" value="${d.seconds}" min="0" step="1" style="max-width:4.5rem"> s</div>
-    <p class="hint">Timer only. All zero = 10 minutes. In combat each predator turn adds 6 seconds.</p></div>
-  <div class="form-group"><label>Timer clock</label><div class="form-fields">
+    <p class="hint">All zero = 10 minutes. In combat each predator turn adds 6 seconds.</p></div>
+  <div class="form-group" data-timer ${timed ? "" : "hidden"}><label>Timer clock</label><div class="form-fields">
     <select name="dclock">
-      <option value="real" ${d.clock === "real" ? "selected" : ""}>Real time (wall clock)</option>
+      <option value="real" ${d.clock === "world" ? "" : "selected"}>Real time (wall clock)</option>
       <option value="world" ${d.clock === "world" ? "selected" : ""}>World clock (in-game time)</option>
     </select></div></div>
-  <div class="form-group"><label>Timer: skip death saves</label><div class="form-fields">
+  <div class="form-group" data-timer ${timed ? "" : "hidden"}><label>Skip death saves</label><div class="form-fields">
     <input type="checkbox" name="dskip" ${d.skipDeathSaves ? "checked" : ""}></div>
     <p class="hint">Prey reaching 0 HP from the timer are digested right away.</p></div>`;
 }
@@ -61,14 +64,41 @@ export function readDigest(form) {
   return out;
 }
 
-/** Ask how this swallow digests. Resolves to the choice, or null if cancelled. */
-export async function askDigest(title = "How does digestion work?") {
+/** The "Hide prey token" checkbox: on request for GM tools and Secret Vore (off by default), automatic with a hiding feat. */
+export function hideField(pred, secret = false) {
+  const feat = hidesPrey(pred);
+  if (!feat && !secret && !game.user.isGM) return "";
+  return `<div class="form-group"><label>Hide prey token</label><div class="form-fields"><input type="checkbox" name="dhide" ${!secret && feat ? "checked" : ""}></div>
+    <p class="hint">${feat && !secret ? "Your stomach hides what it holds. " : ""}Hidden prey vanish from the map for everyone but you, them and the GM, and make no sound until revealed.</p></div>`;
+}
+
+/** One dialog for the whole choice: Vore type (when there is more than one) plus effect and timing. */
+export async function askSwallow({ slots = [], title = "Swallow", intro = "", pred = null, secret = false } = {}) {
+  const picker =
+    slots.length > 1
+      ? `<div class="form-group"><label>Vore type</label><div class="form-fields"><select name="slot">${slots
+          .map((s) => `<option value="${s.index}">${foundry.utils.escapeHTML(s.label)}</option>`)
+          .join("")}</select></div></div>`
+      : "";
   return DialogV2.wait({
     window: { title },
-    content: `<p>Choose what happens to this prey inside, and how.</p>${digestFields()}`,
-    buttons: [{ action: "ok", label: "Swallow", default: true, callback: (e, b) => readDigest(b.form) }],
+    content: `${intro ? `<p>${intro}</p>` : ""}${picker}${digestFields()}${hideField(pred, secret)}`,
+    buttons: [
+      {
+        action: "ok",
+        label: "Swallow",
+        default: true,
+        callback: (e, b) => ({ slot: Number(b.form.elements.slot?.value ?? slots[0]?.index ?? 0), digest: readDigest(b.form), hide: !!b.form.elements.dhide?.checked })
+      }
+    ],
     rejectClose: false
   });
+}
+
+/** Just the digestion choice (no Vore type). */
+export async function askDigest(title = "How does digestion work?") {
+  const r = await askSwallow({ title });
+  return r?.digest ?? null;
 }
 
 /** Keep only sane values before they reach the world state. */
