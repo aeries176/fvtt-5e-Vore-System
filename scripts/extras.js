@@ -1,5 +1,5 @@
 import { MODULE_ID } from "./const.js";
-import { getPrey, getPred, ownsToken, esc, isEndo } from "./util.js";
+import { getPrey, getPred, ownsToken, esc, isEndo, timerView } from "./util.js";
 
 /* -------------------------------------------- */
 /*  Combat tracker: who is inside whom           */
@@ -12,7 +12,8 @@ function badgeFor(token) {
   if (st) {
     const pred = scene.tokens.get(st.predatorId);
     const label = st.digested ? "Digested inside" : "Inside";
-    const pct = st.timed && !st.digested ? ` (${Math.min(100, Math.round((st.timed.elapsed / st.timed.total) * 100))}%)` : "";
+    const v = !st.digested && timerView(token);
+    const pct = v ? ` (${v.pct}%)` : "";
     return `${label} ${esc(pred?.name ?? "?")}${pct}`;
   }
   const names = (getPred(token)?.preyIds ?? [])

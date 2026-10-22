@@ -117,3 +117,35 @@ The world setting "Muffled chat range" (default 30, in scene units, 0 = no limit
 
 ## The Vore tab
 The Vore tab opens on General and shows one panel at a time: General (sound and chat, force-feed text, Stomach AC/HP, copy/paste/presets, the Vore features button) has its own button, and below the "Vore Options" heading are the option buttons, with + to add another Vore option (up to six, one per type). General holds the per-actor settings (sound distance, muffling, Stomach AC/HP, force-feed text, the Vore features button and whole-tab copy/paste). Each option has a Type (Oral, Anal, Breast, Cock, Unbirth or Tail) and Basics (open), Look, Sounds, Inside descriptions, Digestion stages and Advanced. New characters start with one option.
+
+## Interface cleanup (v0.16)
+- **One swallow dialog:** the Vore type, Damage/Healing and Per-turn/Timer choices are now one dialog (also used for Feed and the GM Vore tools). Timer fields only appear when Timer is picked. The chat card has a single "Choose how to swallow" button.
+- **Vore Controls:** the GM has every tool. Players only see the group while one applies (Panic release when digested, Strike and Whisper when held or holding), because everything else is on their Vore features.
+- **Vore status panel:** a small panel (per-player setting, collapsible) shows who holds you, the digestion mode and timer, your HP, and the actions that apply, or for predators the prey they hold with Churn/Release/Endo.
+- **Settings are grouped** under headings: Who can do what, Digestion damage and healing, Rules, Chat and display, and Defaults for Vore option 1.
+- **Quieter chat:** system lines use a lighter style and finished cards fold down to one line (click to expand).
+- **Vore tab:** hints are now hover tooltips (the ? icons), stage effects use an override tick box ("Change this at this stage"), and renaming an option updates its button immediately.
+- **Liquid sway** is now a light GPU transform animation instead of a heavy per-pixel filter, so it no longer hurts the framerate. Reduced-motion browsers skip it.
+
+## Version 0.17 changes
+- **Hiding prey tokens:** Secret Vore no longer hides the prey's token unless you tick "Hide prey token" in the swallow dialog (off by default). A predator with Hammerspace Stomach, Compression Belly, Stomach of Holding or Smuggler Within gets the box ticked automatically. GM tools can always hide. Hidden prey make no loop, swallow or digestion sounds until they are revealed.
+- **Vore status panel:** now called "Vore Status", draggable by its title (double-click to reset), and starts away from the player list.
+- **Settings:** dice, level-step and heal-amount settings are gone (the defaults above apply), and Digestion healing is a plain on/off.
+- **Force-feed text:** written by the prey, per the predator's Vore type, in the General panel of their own Vore tab.
+- **Digestion stages:** compact, with color pickers and sliders. Anything you leave the same as the option is saved as unchanged.
+- The first tool in Vore Controls is now "Select Token" and supports drag/box selecting like Foundry's own select tool.
+
+## Sound fading (v0.17.4)
+Looping Vore sounds now fade smoothly with distance from the predator while anyone is moving, like an ambient sound: the volume follows the live position of the predator and of the listener's tokens (or the GM's view center) many times a second, with an ease-in/out curve, instead of jumping each time a token finishes moving. "When a predator is downed" now defaults to "Ask the GM" and "Auto-roll NPC" is off by default.
+
+## Version 0.18 changes
+- **Secret Vore sounds:** sounds now play for everyone unless the prey token is hidden. With "Hide prey token" off, a secret swallow is audible; hidden prey stay silent.
+- **Reveal:** the GM has a "Reveal hidden prey" tool (eye icon in Vore Controls: selected tokens, or every hidden prey in the scene) and a Reveal button next to hidden prey in a predator's Vore Status. Revealed prey are visible, make sound, and the vore is no longer secret.
+- **Swallow dialog:** the timer duration, clock and skip-death-saves fields now appear and disappear as soon as Timing changes (also in the Feeding request).
+- **Live countdown:** the Vore Status panel and tracker badges count down in real time, not only when HP ticks. A predator's panel shows each prey's state, progress bar, time left and HP, the same as the prey sees.
+- **Death saves:** outside combat the prompt repeats after every save until three successes or three failures. Three successes stabilize the prey at 1 HP and reset their saves; digestion then carries on (a timer starts over and the saves repeat when it runs out). Three failures digest them for good. Churn dropping a player to 0 outside combat now asks for the save too.
+
+## Version 0.18.1
+- The digestion timer now pauses while a combat is running on the scene (including combats not tied to a scene); each predator turn still adds 6 seconds.
+- Three death-save successes now give the prey 1 HP and reset their saves instead of digesting them. A timed prey's countdown restarts, so the saves repeat at the end of the new timer.
+- New world setting "Secret Vore sound distance" (default 10, 0 = normal): how far Vore sounds carry while a vore is secret but the token is not hidden.

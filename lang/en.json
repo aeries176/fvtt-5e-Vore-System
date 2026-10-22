@@ -47,6 +47,8 @@
   "VORE.Settings.Stomach.Hint": "Off (default). On: each predator's stomach has its own AC and HP (set in the Vore tab; blank = automatic). Prey use 'Strike from within' to attack it, and breaking through releases everyone. Replaces the breakout-threshold rule.",
   "VORE.Settings.MuffleRange.Name": "Muffled chat range",
   "VORE.Settings.MuffleRange.Hint": "How far (in scene distance units, e.g. feet) a vored token's muffled speech carries. Players with no token that close hear nothing. The GM, the speaker and their bellymates always hear it. 0 = no limit.",
+  "VORE.Settings.SecretSoundRange.Name": "Secret Vore sound distance",
+  "VORE.Settings.SecretSoundRange.Hint": "How far (in scene distance units) Vore sounds carry while the vore is secret and the prey token is not hidden. 0 = use each predator's normal sound distance.",
   "VORE.Settings.Panel.Name": "Show the Vore status panel",
   "VORE.Settings.Panel.Hint": "A small panel for you when your token is inside a predator, digested, or holding prey: who holds you, the timer, your HP and the actions that apply. Your own setting.",
   "VORE.Settings.AutoFeatures.Name": "Add Vore features to player characters",

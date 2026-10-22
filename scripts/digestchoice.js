@@ -18,7 +18,6 @@ function last() {
 export function digestFields() {
   const d = last();
   const timed = d.mode === "timed";
-  const toggle = `onchange="const f=this.closest('form'); f.querySelectorAll('[data-timer]').forEach(e=>e.hidden=this.value!=='timed')"`;
   return `
   <div class="form-group"><label>Effect on prey</label><div class="form-fields">
     <select name="deffect">
@@ -26,23 +25,36 @@ export function digestFields() {
       <option value="heal" ${d.effect === "heal" ? "selected" : ""}>Healing (prey recover, nobody is digested)</option>
     </select></div></div>
   <div class="form-group"><label>Timing</label><div class="form-fields">
-    <select name="dmode" ${toggle}>
+    <select name="dmode">
       <option value="turn" ${timed ? "" : "selected"}>Each of the predator's turns</option>
       <option value="timed" ${timed ? "selected" : ""}>Timer (countdown)</option>
     </select></div></div>
-  <div class="form-group" data-timer ${timed ? "" : "hidden"}><label>Timer duration</label><div class="form-fields">
+  <div class="form-group" data-timer ${timed ? "" : 'style="display:none"'}><label>Timer duration</label><div class="form-fields">
     <input type="number" name="dh" value="${d.hours}" min="0" step="1" style="max-width:4.5rem"> h
     <input type="number" name="dm" value="${d.minutes}" min="0" step="1" style="max-width:4.5rem"> m
     <input type="number" name="ds" value="${d.seconds}" min="0" step="1" style="max-width:4.5rem"> s</div>
     <p class="hint">All zero = 10 minutes. In combat each predator turn adds 6 seconds.</p></div>
-  <div class="form-group" data-timer ${timed ? "" : "hidden"}><label>Timer clock</label><div class="form-fields">
+  <div class="form-group" data-timer ${timed ? "" : 'style="display:none"'}><label>Timer clock</label><div class="form-fields">
     <select name="dclock">
       <option value="real" ${d.clock === "world" ? "" : "selected"}>Real time (wall clock)</option>
       <option value="world" ${d.clock === "world" ? "selected" : ""}>World clock (in-game time)</option>
     </select></div></div>
-  <div class="form-group" data-timer ${timed ? "" : "hidden"}><label>Skip death saves</label><div class="form-fields">
+  <div class="form-group" data-timer ${timed ? "" : 'style="display:none"'}><label>Skip death saves</label><div class="form-fields">
     <input type="checkbox" name="dskip" ${d.skipDeathSaves ? "checked" : ""}></div>
     <p class="hint">Prey reaching 0 HP from the timer are digested right away.</p></div>`;
+}
+
+/** Show the timer fields only while "Timer" is selected. Call from a dialog's render callback. */
+export function bindDigest(dialog) {
+  const root = dialog?.element ?? dialog;
+  const sel = root?.querySelector?.('select[name="dmode"]');
+  if (!sel) return;
+  const apply = () => {
+    root.querySelectorAll("[data-timer]").forEach((e) => (e.style.display = sel.value === "timed" ? "" : "none"));
+    dialog.setPosition?.({ height: "auto" });
+  };
+  sel.addEventListener("change", apply);
+  apply();
 }
 
 /** Read the fields back out of a form element. */
@@ -91,6 +103,7 @@ export async function askSwallow({ slots = [], title = "Swallow", intro = "", pr
         callback: (e, b) => ({ slot: Number(b.form.elements.slot?.value ?? slots[0]?.index ?? 0), digest: readDigest(b.form), hide: !!b.form.elements.dhide?.checked })
       }
     ],
+    render: (event, dialog) => bindDigest(dialog),
     rejectClose: false
   });
 }

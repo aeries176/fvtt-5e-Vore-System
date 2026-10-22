@@ -1,16 +1,16 @@
 import { MODULE_ID } from "./const.js";
 import {
-  getPrey, getPred, getConfig, getSlot, activeSlots, tokenDoc, ownsToken, hasActivePlayerOwner, esc, say, fmtMsg, isEndo, isEndoOnly, audience, scopeFor
+  getPrey, getPred, getConfig, getSlot, activeSlots, tokenDoc, ownsToken, hasActivePlayerOwner, esc, say, fmtMsg, isEndo, isEndoOnly, audience, scopeFor, combatRunning
 } from "./util.js";
 import { register, registerClient, request, notify } from "./socket.js";
-import { startVore, release, digest } from "./vore.js";
+import { startVore, release, digest, revealPrey } from "./vore.js";
 import {
   rollSkillTotal, rollSaveTotal, bestSkill, rollDamage, turnFormula, churnFormula, applyPreyDamage, applyPreyHealing,
   sizeModes, combineMode
 } from "./rules.js";
 import { describeInside } from "./inside.js";
 import { stepTimed } from "./timed.js";
-import { askSwallow, digestFields, hideField, readDigest } from "./digestchoice.js";
+import { askSwallow, digestFields, hideField, readDigest, bindDigest } from "./digestchoice.js";
 
 const FLAG = `flags.${MODULE_ID}.card`;
 const SKILL_NAMES = { ath: "Athletics", acr: "Acrobatics" };
@@ -342,21 +342,65 @@ async function resolveDamage(messageId) {
   await saveCard(msg, card);
 }
 
-async function resolveDeathSave(messageId) {
+const combatOn = (sceneId) => combatRunning(game.scenes.get(sceneId));
+
+async function resolveDeathSave(messageId, roll = {}) {
   const msg = game.messages.get(messageId);
   const card = readCard(msg);
   if (!card || card.resolved) return;
   const prey = tokenDoc(card.sceneId, card.preyId);
   card.resolved = true;
-  const fails = prey?.actor?.system.attributes.death?.failure ?? 0;
-  const alive = (prey?.actor?.system.attributes.hp.value ?? 0) > 0;
-  card.outcome = fails >= 3 ? "Three failures — digested." : alive ? "Back on their feet." : `Failures: ${fails}/3.`;
+  const st = prey && getPrey(prey);
+  if (!st) {
+    card.outcome = "No longer vored.";
+    return saveCard(msg, card);
+  }
+  const att = prey.actor?.system.attributes;
+  const alive = (att?.hp.value ?? 0) > 0 || roll.nat === 20;
+  // We keep our own count of successes: dnd5e wipes its tally the moment it reaches three.
+  let s = Number(st.death?.s) || 0;
+  const total = Number(roll.total);
+  const success = roll.nat === 20 || (Number.isFinite(total) && total >= 10) || (!Number.isFinite(total) && (att?.death?.success ?? 0) > s);
+  if (!alive && success) s += 1;
+  const fails = att?.death?.failure ?? 0;
+
+  const recovered = alive || (!alive && fails < 3 && s >= 3);
+  if (recovered) {
+    card.outcome = alive ? "Back on their feet." : "Three successes \u2014 stable at 1 HP.";
+  } else if (fails >= 3) {
+    card.outcome = "Three failures \u2014 digested.";
+  } else {
+    card.outcome = `${success ? "Success" : "Failure"}. Successes ${s}/3, failures ${fails}/3.`;
+    await prey.update({ [`flags.${MODULE_ID}.prey.death`]: { s } }, { voreMove: true });
+  }
   await saveCard(msg, card);
-  if (!prey || !getPrey(prey)) return;
+  if (recovered) {
+    await recoverPrey(prey, !alive);
+    // Per-turn digestion simply carries on with the next damage; a timer starts over (see recoverPrey).
+    if (!getPrey(prey)?.timed && combatOn(card.sceneId)) await postDamage(card.sceneId, card.predId, card.preyId);
+    return;
+  }
   if (fails >= 3) return digest(prey);
-  // Timed options don't roll per-turn damage; the countdown handles it.
-  if (getPrey(prey)?.timed) return;
-  await postDamage(card.sceneId, card.predId, card.preyId);
+  // Outside combat nothing else will ask again, so ask right away until it is settled.
+  if (!combatOn(card.sceneId)) return postDeathSave(card.sceneId, card.predId, card.preyId);
+  if (!getPrey(prey)?.timed) await postDamage(card.sceneId, card.predId, card.preyId);
+}
+
+/** A prey that survived its death saves: 1 HP if they had none, saves reset, and a digestion timer starts over. */
+async function recoverPrey(prey, setHp) {
+  const att = prey.actor?.system.attributes;
+  if (setHp && att && (att.hp.value ?? 0) <= 0) await prey.actor.update({ "system.attributes.hp.value": 1 });
+  if (att) await prey.actor.update({ "system.attributes.death.success": 0, "system.attributes.death.failure": 0 });
+  const t = getPrey(prey)?.timed;
+  const update = { [`flags.${MODULE_ID}.prey.-=death`]: null };
+  if (t) {
+    update[`flags.${MODULE_ID}.prey.timed`] = {
+      ...t, startedAt: foundry.utils.randomID(), elapsed: 0, drained: 0, halted: false,
+      startHp: prey.actor?.system.attributes.hp.value ?? 1,
+      lastTick: t.clock === "world" ? game.time.worldTime * 1000 : Date.now()
+    };
+  }
+  await prey.update(update, { voreMove: true });
 }
 
 /** Prey hurt the predator enough from inside: the predator must save or let everyone go. */
@@ -413,6 +457,8 @@ async function churn({ sceneId, predId, preyIds }) {
     const total = await rollDamage(churnFormula(pred.actor), `Churn — ${prey.name} (half acid, half bludgeoning)`, pred.name);
     const result = await applyPreyDamage(prey, total);
     if (result !== "alive") await say(`<p><strong>${esc(prey.name)}</strong> is ${result === "digested" ? "digested" : "dying"}.</p>`, { whisper });
+    // Outside combat nobody's turn will ask for the death save, so ask now.
+    if (result === "dying" && !combatOn(sceneId) && !st.timed?.skip) await postDeathSave(sceneId, predId, id);
   }
 }
 
@@ -456,6 +502,7 @@ async function promptConsent({ type, sceneId, predId, preyId, slots }) {
       { action: "yes", label: feed ? "Allow Feeding" : "Allow Release", default: true, callback: reply(true) },
       { action: "no", label: feed ? "Resist Feeding" : "Resist Release", callback: reply(false) }
     ],
+    render: (event, dialog) => bindDigest(dialog),
     rejectClose: false
   });
   if (!pick) return;
@@ -506,7 +553,14 @@ export function registerCardHandlers() {
     const card = readCard(game.messages.get(messageId));
     if (card && userCan(userId, tokenDoc(card.sceneId, card.predId)) && Number.isFinite(total)) return resolveBreakout(messageId, total);
   });
-  register("deathSaveDone", ({ messageId }) => resolveDeathSave(messageId));
+  register("revealPrey", async ({ sceneId, tokenIds }, userId) => {
+    if (!game.users.get(userId)?.isGM) return;
+    for (const id of tokenIds ?? []) {
+      const t = tokenDoc(sceneId, id);
+      if (t) await revealPrey(t);
+    }
+  });
+  register("deathSaveDone", ({ messageId, total, nat }) => resolveDeathSave(messageId, { total, nat }));
   register("churn", (data, userId) => {
     const pred = tokenDoc(data.sceneId, data.predId);
     if (pred && userCan(userId, pred)) return churn(data);
@@ -685,12 +739,15 @@ export function registerCardHandlers() {
         if (kind === "roll") return askRoll({ messageId: msg.id, tokenId, sceneId: card.sceneId });
         btn.disabled = true;
         if (kind === "deathsave") {
+          let res;
           try {
-            await doc.actor.rollDeathSave({}, { configure: false }, { create: true });
+            res = await doc.actor.rollDeathSave({}, { configure: false }, { create: true });
           } catch (e) {
-            await doc.actor.rollDeathSave({});
+            res = await doc.actor.rollDeathSave({});
           }
-          request("deathSaveDone", { messageId: msg.id });
+          const r = Array.isArray(res) ? res[0] : res;
+          const nat = r?.dice?.[0]?.results?.find((x) => x.active !== false)?.result ?? r?.dice?.[0]?.total;
+          request("deathSaveDone", { messageId: msg.id, total: r?.total, nat });
         } else if (kind === "save") {
           const total = await rollSaveTotal(doc.actor, "con");
           if (total === null) return (btn.disabled = false);

@@ -97,14 +97,12 @@ async function setStatus(doc, id, active, overlay = false) {
 }
 
 /** Play a one-shot event sound (swallow / escape / digest) on every client, fading with distance. */
-function playEvent(pred, slotIndex, key, secretWith = null) {
+function playEvent(pred, slotIndex, key, secret = false) {
   const slot = getSlot(getConfig(pred), slotIndex);
   const src = slot?.[key];
   if (!src) return;
-  // Secret Vore: only the GM and the participants hear it.
-  const allowed = secretWith ? new Set(audience([pred, ...secretWith])) : null;
-  const users = game.users.filter((u) => u.active && (!allowed || allowed.has(u.id))).map((u) => u.id);
-  notify(users, "oneShot", { sceneId: pred.parent.id, predId: pred.id, src, volume: Number(slot.soundVolume) || 0.6 });
+  const users = game.users.filter((u) => u.active).map((u) => u.id);
+  notify(users, "oneShot", { sceneId: pred.parent.id, predId: pred.id, src, volume: Number(slot.soundVolume) || 0.6, secret: !!secret });
 }
 
 /** Statuses applied to prey while held. Only ones the actor didn't already have, so we never strip theirs. */
@@ -205,7 +203,7 @@ export async function startVore({ sceneId, predId, preyIds, slot = 0, forced = f
   if (!names.length) return;
   await setPredPreys(pred, [...ids]);
   logEvent(scene, `${logName(pred)} swallowed ${swallowed.map(logName).join(", ")}${forced ? " (they forced their way in)" : ""}${swallowed.some((p) => getPrey(p)?.timed) ? " \u2014 timed digestion" : ""}.`, { secret });
-  if (!hideTokens) playEvent(pred, slot, "swallowSound", secret ? swallowed : null); // no sound while the prey is hidden
+  if (!hideTokens) playEvent(pred, slot, "swallowSound", secret); // no sound while the prey is hidden
   for (const prey of swallowed) await describeInside(prey, pred, slot, "descSwallow");
   const whisper = secret ? audience([pred, ...swallowed]) : undefined;
   const template = (slotCfg.swallowMessage ?? "").trim() || "{predator} swallows {prey}.";
@@ -225,6 +223,16 @@ export async function startVore({ sceneId, predId, preyIds, slot = 0, forced = f
       { whisper }
     );
   }
+}
+
+/** GM: make a hidden held prey visible again. Their sounds start, and the vore is no longer secret. */
+export async function revealPrey(prey) {
+  const st = getPrey(prey);
+  if (!st || !prey.hidden) return false;
+  const pred = prey.parent.tokens.get(st.predatorId);
+  await prey.update({ hidden: false, [`${FLAG}.prey.secret`]: false }, moveOpts());
+  logEvent(prey.parent, `${logName(prey)} was revealed${pred ? ` inside ${logName(pred)}` : ""}.`, { secret: false });
+  return true;
 }
 
 /** Free a prey token (escape, GM release or restore). */
@@ -266,7 +274,7 @@ export async function release(prey, { place = true, restoreImage } = {}) {
   if (pred) {
     const ids = (getPred(pred)?.preyIds ?? []).filter((i) => i !== prey.id);
     await setPredPreys(pred, ids);
-    if (st && !st.digested) playEvent(pred, st.slot, "escapeSound", st.secret ? [prey] : null);
+    if (st && !st.digested) playEvent(pred, st.slot, "escapeSound", st.secret);
   }
 }
 
@@ -287,7 +295,7 @@ export async function digest(prey) {
   await setStatus(prey, "dead", true, true);
   logEvent(scene, `${logName(prey)} was digested${pred ? ` by ${logName(pred)}` : ""}.`, { secret: !!st.secret });
   if (pred) {
-    if (!prey.hidden) playEvent(pred, st.slot, "digestSound", st.secret ? [prey] : null);
+    if (!prey.hidden) playEvent(pred, st.slot, "digestSound", st.secret);
     await describeInside(prey, pred, st.slot, "descDigested");
   }
 

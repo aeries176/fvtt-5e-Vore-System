@@ -225,32 +225,37 @@ export function syncFX() {
     if (!st || st.digested) continue;
     const pred = scene.tokens.get(st.predatorId);
     if (!pred) continue;
-    // Secret Vore is only heard and seen by the GM and the participants.
-    if (st.secret && !game.user.isGM && !ownsToken(pred) && !ownsToken(prey)) continue;
     const cfg = getConfig(pred);
     // Digestion stages can override the sound and screen effects as the prey's HP falls.
     const slot = effectiveSlot(getSlot(cfg, st.slot), stageOf(prey.actor));
     if (mineIds.has(prey.id) && !fxSlot) fxSlot = slot;
     if (prey.hidden) continue; // hidden prey make no sound until they are revealed
-    groups.set(`${pred.id}:${st.slot}:${slot.sound || slot.externalSound || slot.internalSound || ""}`, { pred, cfg, slot });
+    groups.set(`${pred.id}:${st.slot}:${st.secret ? "s" : "n"}:${slot.sound || slot.externalSound || slot.internalSound || ""}`, { pred, cfg, slot, secret: !!st.secret });
   }
 
   for (const [key, g] of groups) {
     const src = g.slot.sound || g.slot.externalSound || g.slot.internalSound;
     if (!src) continue;
-    wanted.set(key, { src, base: Number(g.slot.soundVolume) || 0.6, range: Math.max(1, Number(g.cfg.soundRange) || 30), predId: g.pred.id });
+    wanted.set(key, { src, base: Number(g.slot.soundVolume) || 0.6, range: soundRange(g.pred, g.secret), predId: g.pred.id });
   }
   applyScreenFx(fxSlot);
   return reconcileSounds(wanted);
 }
 
+/** How far a Vore sound carries: the predator's setting, or the GM's shorter world setting during Secret Vore. */
+function soundRange(pred, secret) {
+  const normal = Math.max(1, Number(getConfig(pred).soundRange) || 30);
+  const quiet = Number(game.settings.get(MODULE_ID, "secretSoundRange")) || 0;
+  return secret && quiet > 0 ? quiet : normal;
+}
+
 /** One-shot event sound (swallow / escape / digest), faded by distance the same way as the loop. */
-async function playOneShot({ sceneId, predId, src, volume }) {
+async function playOneShot({ sceneId, predId, src, volume, secret }) {
   if (canvas?.scene?.id !== sceneId) return;
   const pred = canvas.scene.tokens.get(predId);
   if (!pred || !src) return;
   const mine = canvas.scene.tokens.filter((t) => !game.user.isGM && ownsToken(t));
-  const range = Math.max(1, Number(getConfig(pred).soundRange) || 30);
+  const range = soundRange(pred, secret);
   const x = Math.max(0, 1 - listenerDistance(pred, mine) / range);
   const level = x * x * (3 - 2 * x);
   const master = game.settings.get("core", "globalInterfaceVolume") ?? 1;

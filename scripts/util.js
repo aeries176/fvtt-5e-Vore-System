@@ -189,3 +189,30 @@ export function fmtMsg(template, vars) {
 
 /** Endo: predator holds prey without harming them. Ignored while the world setting is off. */
 export const isEndo = (pred) => isEndoOnly(pred) || (!!flagOf(pred, "endo") && game.settings.get(MODULE_ID, "allowEndo"));
+
+/** Is a combat that has begun running on this scene? (A combat with no scene counts for the active scene.) */
+export function combatRunning(scene) {
+  return game.combats.some((c) => c.started && (c.scene ? c.scene.id === scene?.id : !!scene?.active));
+}
+
+/**
+ * Live view of a timed prey's countdown, interpolated between the GM's saves so clocks tick smoothly everywhere.
+ * Returns null for prey that aren't on a timer.
+ */
+export function timerView(prey) {
+  const st = getPrey(prey);
+  const t = st?.timed;
+  if (!t) return null;
+  const scene = prey.parent;
+  const pred = scene?.tokens?.get(st.predatorId);
+  const total = Math.max(1, t.total);
+  let elapsed = Number(t.elapsed) || 0;
+  const combat = combatRunning(scene);
+  const frozen = !!t.halted || st.digested || combat || (pred && isEndo(pred));
+  if (!frozen) {
+    const now = t.clock === "world" ? game.time.worldTime * 1000 : Date.now();
+    elapsed += Math.max(0, now - (Number(t.lastTick) || now));
+  }
+  elapsed = Math.min(total, elapsed);
+  return { pct: Math.round((elapsed / total) * 100), left: total - elapsed, elapsed, total, heal: !!t.heal, done: elapsed >= total || !!t.halted, frozen };
+}

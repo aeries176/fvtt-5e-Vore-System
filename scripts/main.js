@@ -128,6 +128,14 @@ Hooks.once("init", () => {
     type: Number,
     default: 30
   });
+  game.settings.register(MODULE_ID, "secretSoundRange", {
+    name: "VORE.Settings.SecretSoundRange.Name",
+    hint: "VORE.Settings.SecretSoundRange.Hint",
+    scope: "world",
+    config: true,
+    type: Number,
+    default: 10
+  });
   game.settings.register(MODULE_ID, "autoAddFeatures", {
     name: "VORE.Settings.AutoFeatures.Name",
     hint: "VORE.Settings.AutoFeatures.Hint",

@@ -5,7 +5,7 @@ const GROUPS = [
   ["Who can do what", ["playersCanVore", "playersEditConfig", "allowFeeding", "allowEndo", "autoRollNPC", "autoAddFeatures"]],
   ["Digestion", ["digestHeal"]],
   ["Rules", ["sizeMatters", "preyStrikeBack", "breakoutThreshold", "breakoutDC", "stomachRules", "predatorDowned"]],
-  ["Chat and display", ["muffleRange", "showStatusPanel", "smoothAttach", "voreLog"]],
+  ["Chat and display", ["muffleRange", "secretSoundRange", "showStatusPanel", "smoothAttach", "voreLog"]],
   ["Defaults for Vore option 1", ["defaultPreyImg1", "defaultDigestedImg1", "defaultSound1", "defaultSwallowSound1", "defaultEscapeSound1", "defaultDigestSound1"]]
 ];
 

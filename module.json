@@ -2,7 +2,7 @@
   "id": "vore-system",
   "title": "Vore System (D&D 5e)",
   "description": "System-level predator/prey mechanics for D&D 5e: opposed Athletics/Acrobatics checks, glued prey tokens, per-turn digestion damage, Churn, death saves, vision/tint/audio effects and muffled chat.",
-  "version": "0.17.4",
+  "version": "0.18.1",
   "authors": [
     {
       "name": "Vore System"
@@ -39,5 +39,5 @@
   "socket": true,
   "url": "https://github.com/aeries176/fvtt-5e-Vore-System",
   "manifest": "https://github.com/aeries176/fvtt-5e-Vore-System/releases/latest/download/module.json",
-  "download": "https://github.com/aeries176/fvtt-5e-Vore-System/releases/download/v0.17.4/vore-system.zip"
+  "download": "https://github.com/aeries176/fvtt-5e-Vore-System/releases/download/v0.18.1/vore-system.zip"
 }

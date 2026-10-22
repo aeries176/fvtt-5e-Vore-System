@@ -179,6 +179,12 @@ export function registerUIHooks() {
           });
           if (ok) request("resetScene", { sceneId: canvas.scene.id });
         } },
+      { name: "vore-reveal", title: "Reveal hidden prey (selected tokens, or every hidden prey in the scene)", icon: "fa-solid fa-eye", visible: () => game.user.isGM, onChange: () => {
+          const sel = canvas.tokens.controlled.map((t) => t.document);
+          const pool = (sel.length ? sel : [...canvas.scene.tokens]).filter((t) => t.hidden && getPrey(t) && !getPrey(t).digested);
+          if (!pool.length) return ui.notifications.info("No hidden prey to reveal.");
+          request("revealPrey", { sceneId: canvas.scene.id, tokenIds: pool.map((t) => t.id) });
+        } },
       { name: "vore-whisper", title: "Whisper inside", icon: "fa-solid fa-comment-dots", visible: () => game.user.isGM || ctx().held || ctx().holding, onChange: withToken(promptWhisper) },
       { name: "vore-secret-check", title: "Secret Vore check (GM: private check, hidden prey)", icon: "fa-solid fa-user-secret", visible: () => game.user.isGM, onChange: withToken((t) => voreAction(t, { secret: true })) },
       { name: "vore", title: "Vore (selected tokens, no check)", icon: "fa-solid fa-utensils", visible: () => game.user.isGM, onChange: () => manualVore() },

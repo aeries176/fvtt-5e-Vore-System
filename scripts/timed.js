@@ -1,5 +1,5 @@
 import { MODULE_ID } from "./const.js";
-import { getPrey, isActiveGM, isEndo } from "./util.js";
+import { getPrey, isActiveGM, isEndo, combatRunning } from "./util.js";
 import { applyPreyDamage, applyPreyHealing } from "./rules.js";
 import { postDeathSave } from "./cards.js";
 import { digest } from "./vore.js";
@@ -32,7 +32,6 @@ export function initialTimedState(prey, d) {
 }
 
 /** Combat is slowed-down time: the countdown is frozen while a combat is running on the scene. */
-const combatRunning = (scene) => game.combats.some((c) => c.started && c.scene?.id === scene.id);
 
 async function advance(scene, prey, pred, st, real, addMs = 0) {
   const t = st.timed;
@@ -45,10 +44,17 @@ async function advance(scene, prey, pred, st, real, addMs = 0) {
   // The clock itself is frozen during combat, and while the predator has Endo on (nobody inside takes damage).
   // In combat, time instead moves in 6-second steps on each of the predator's turns (addMs).
   if (isEndo(pred) || (!addMs && combatRunning(scene))) {
+    // Save once as the clock freezes, so everyone's live display stops at the same moment.
+    const first = !mem.frozen;
+    mem.frozen = true;
     clock.set(key, mem);
+    if (first) await prey.update({ [`${FLAG}.prey.timed`]: { ...t, elapsed: Math.max(mem.elapsed, t.elapsed), lastTick: now } }, { voreMove: true });
     return;
   }
-  mem.elapsed = Math.max(mem.elapsed, t.elapsed) + (addMs || gap);
+  const resumed = !!mem.frozen;
+  mem.frozen = false;
+  mem.elapsed = Math.max(mem.elapsed, t.elapsed) + (resumed ? 0 : addMs || gap);
+  mem.saveNow = resumed || !!addMs;
   clock.set(key, mem);
 
   const progress = Math.min(1, mem.elapsed / t.total);
@@ -61,7 +67,7 @@ async function advance(scene, prey, pred, st, real, addMs = 0) {
     const gain = Math.max(0, max - t.startHp);
     const add = finished ? Math.max(0, max - (hp.value ?? 0)) : Math.round(gain * progress) - t.drained;
     if (add > 0) await applyPreyHealing(prey, add);
-    if (add > 0 || finished || real - mem.saved > SAVE_EVERY_MS) {
+    if (add > 0 || finished || mem.saveNow || real - mem.saved > SAVE_EVERY_MS) {
       mem.saved = real;
       await prey.update(
         { [`${FLAG}.prey.timed`]: { ...t, elapsed: mem.elapsed, lastTick: now, drained: t.drained + Math.max(0, add), halted: finished ? true : t.halted } },
@@ -72,7 +78,7 @@ async function advance(scene, prey, pred, st, real, addMs = 0) {
   }
   const delta = finished ? (hp.value ?? 0) + (hp.temp ?? 0) : Math.round(t.startHp * progress) - t.drained;
 
-  if (delta > 0 || real - mem.saved > SAVE_EVERY_MS) {
+  if (delta > 0 || mem.saveNow || real - mem.saved > SAVE_EVERY_MS) {
     mem.saved = real;
     await prey.update(
       { [`${FLAG}.prey.timed`]: { ...t, elapsed: mem.elapsed, lastTick: now, drained: t.drained + Math.max(0, delta) } },

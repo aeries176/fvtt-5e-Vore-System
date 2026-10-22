@@ -1,5 +1,6 @@
 import { MODULE_ID } from "./const.js";
-import { getPrey, getPred, getConfig, getSlot, ownsToken, esc, isEndo } from "./util.js";
+import { getPrey, getPred, getConfig, getSlot, ownsToken, esc, isEndo, timerView } from "./util.js";
+import { request } from "./socket.js";
 import { escapeAction, strikeAction, churnAction, releaseAction, endoAction, panicAction } from "./ui.js";
 import { promptWhisper } from "./inside.js";
 import { stomachOn } from "./stomach.js";
@@ -80,14 +81,30 @@ function relevant() {
   });
 }
 
-function timerLine(st) {
-  const t = st.timed;
-  if (!t) return "";
-  const pct = Math.min(100, Math.round(((t.elapsed ?? 0) / t.total) * 100));
-  const left = fmt(t.total - (t.elapsed ?? 0));
-  const label = t.heal ? "Recovering" : "Digesting";
-  return `<div class="vsp-bar" title="${label}: about ${left} left"><span style="width:${pct}%"></span></div>
-          <div class="vsp-sub">${label} · ${t.halted ? "finished" : `about ${left} left`}</div>`;
+/** Countdown bar and time left; the numbers carry data-live so a once-a-second pass can update them in place. */
+function timerLine(doc, st) {
+  const v = timerView(doc);
+  if (!v) return "";
+  const label = v.heal ? "Recovering" : "Digesting";
+  const id = doc.id;
+  return `<div class="vsp-bar"><span data-live="bar" data-token="${id}" style="width:${v.pct}%"></span></div>
+          <div class="vsp-sub">${label} \u00b7 <span data-live="left" data-token="${id}">${leftText(v)}</span> \u00b7 <span data-live="pct" data-token="${id}">${v.pct}%</span></div>`;
+}
+
+const leftText = (v) => (v.done ? "finished" : `${fmt(v.left)} left${v.frozen ? " (paused)" : ""}`);
+
+/** Update the countdown bars and numbers in place, without rebuilding the panel. */
+function tickLive() {
+  const el = document.getElementById(ID);
+  if (!el || !canvas?.scene) return;
+  el.querySelectorAll("[data-live]").forEach((n) => {
+    const doc = canvas.scene.tokens.get(n.dataset.token);
+    const v = doc && timerView(doc);
+    if (!v) return;
+    if (n.dataset.live === "bar") n.style.width = `${v.pct}%`;
+    else if (n.dataset.live === "pct") n.textContent = `${v.pct}%`;
+    else n.textContent = leftText(v);
+  });
 }
 
 function hpLine(doc) {
@@ -97,6 +114,13 @@ function hpLine(doc) {
   return `<div class="vsp-sub">HP ${hp.value ?? 0} / ${max}${hp.temp ? ` (+${hp.temp} temp)` : ""}</div>`;
 }
 
+/** One prey's state: how it is being digested, the countdown and its HP. Shared by the prey's and the predator's views. */
+function preyState(doc, pred) {
+  const st = getPrey(doc);
+  const mode = pred && isEndo(pred) ? "Endo: safe" : st.heal ? "Being soothed (healing)" : "Being digested";
+  return `<div class="vsp-sub">${mode}${st.timed ? "" : " \u00b7 damage on each of the predator's turns"}</div>${timerLine(doc, st)}${hpLine(doc)}`;
+}
+
 function rowFor(doc) {
   const st = getPrey(doc);
   const scene = doc.parent;
@@ -104,21 +128,24 @@ function rowFor(doc) {
   if (st && !st.digested) {
     const pred = scene.tokens.get(st.predatorId);
     const cfg = pred ? getSlot(getConfig(pred), st.slot) : {};
-    const mode = pred && isEndo(pred) ? "Endo: you are safe" : st.heal ? "Being soothed (healing)" : "Being digested";
     const strike = game.settings.get(MODULE_ID, "preyStrikeBack") || stomachOn();
-    return `<div class="vsp-row"><strong>${esc(doc.name)}</strong> — inside <em>${esc(pred?.name ?? "someone")}</em>${cfg.label ? ` (${esc(cfg.label)})` : ""}
-      <div class="vsp-sub">${mode}${st.timed ? "" : " · damage on each of their turns"}</div>${timerLine(st)}${hpLine(doc)}
+    return `<div class="vsp-row"><strong>${esc(doc.name)}</strong> \u2014 inside <em>${esc(pred?.name ?? "someone")}</em>${cfg.label ? ` (${esc(cfg.label)})` : ""}
+      ${preyState(doc, pred)}
       <div class="vsp-actions">${btn("struggle", "Struggle")}${strike ? btn("strike", "Strike") : ""}${btn("whisper", "Whisper")}</div></div>`;
   }
   if (st?.digested || doc.getFlag(MODULE_ID, "digested")) {
-    return `<div class="vsp-row"><strong>${esc(doc.name)}</strong> — digested
+    return `<div class="vsp-row"><strong>${esc(doc.name)}</strong> \u2014 digested
       <div class="vsp-actions">${btn("panic", "Panic release")}</div></div>`;
   }
-  const preyDocs = (getPred(doc)?.preyIds ?? []).map((id) => scene.tokens.get(id)).filter((p) => p && !getPrey(p)?.digested);
+  const preyDocs = (getPred(doc)?.preyIds ?? []).map((id) => scene.tokens.get(id)).filter((p) => p && getPrey(p));
   const list = preyDocs
-    .map((p) => `<div class="vsp-sub">${esc(p.name)}${getPrey(p)?.timed ? ` · ${Math.min(100, Math.round(((getPrey(p).timed.elapsed ?? 0) / getPrey(p).timed.total) * 100))}%` : ""}</div>`)
+    .map((p) => {
+      const reveal = game.user.isGM && p.hidden && !getPrey(p).digested ? `<button type="button" data-vsp="reveal" data-token="${p.id}">Reveal</button>` : "";
+      const head = `<strong>${esc(p.name)}</strong>${p.hidden ? " <em>(hidden)</em>" : ""}`;
+      return `<div class="vsp-prey">${head}${getPrey(p).digested ? `<div class="vsp-sub">Digested</div>` : preyState(p, doc)}${reveal}</div>`;
+    })
     .join("");
-  return `<div class="vsp-row"><strong>${esc(doc.name)}</strong> — holding ${preyDocs.length}${isEndo(doc) ? " (Endo)" : ""}${list}
+  return `<div class="vsp-row"><strong>${esc(doc.name)}</strong> \u2014 holding ${preyDocs.filter((p) => !getPrey(p).digested).length}${isEndo(doc) ? " (Endo)" : ""}${list}
     <div class="vsp-actions">${btn("churn", "Churn")}${btn("release", "Release")}${btn("endo", "Endo")}${btn("whisper", "Whisper")}</div></div>`;
 }
 
@@ -144,6 +171,7 @@ function render() {
       if (!b) return;
       const doc = canvas.scene?.tokens.get(b.dataset.token);
       if (!doc) return;
+      if (b.dataset.vsp === "reveal") return request("revealPrey", { sceneId: doc.parent.id, tokenIds: [doc.id] });
       const run = { struggle: escapeAction, strike: strikeAction, whisper: promptWhisper, churn: churnAction, release: releaseAction, endo: endoAction, panic: panicAction }[b.dataset.vsp];
       run?.(doc);
     });
@@ -173,8 +201,11 @@ export function registerPanel() {
   Hooks.on("updateToken", soon);
   Hooks.on("deleteToken", soon);
   Hooks.on("updateActor", soon);
+  let n = 0;
   setInterval(() => {
-    if (document.getElementById(ID) && !collapsed) render(); // keeps timers and HP fresh
-  }, 5000);
+    if (!document.getElementById(ID) || collapsed) return;
+    tickLive(); // countdowns move every second
+    if (++n % 5 === 0) render(); // a full refresh keeps HP and who-holds-whom current
+  }, 1000);
   Hooks.once("ready", soon);
 }
